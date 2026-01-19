@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+
+# Environment
+.env
+.env.local
+
+# Build outputs
+dist/
+build/
+out/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Electron
+release/
+
+# Android
+nexus-android/.gradle/
+nexus-android/build/
+nexus-android/app/build/
+nexus-android/local.properties
+nexus-android/*.iml
+nexus-android/.idea/
+
+# Temporary
+*.tmp
+*.temp
