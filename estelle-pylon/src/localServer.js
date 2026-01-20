@@ -1,4 +1,5 @@
 const WebSocket = require('ws');
+const logger = require('./logger');
 
 class LocalServer {
   constructor(port) {
@@ -13,12 +14,12 @@ class LocalServer {
     this.wss = new WebSocket.Server({ port: this.port });
 
     this.wss.on('listening', () => {
-      console.log(`[${new Date().toISOString()}] Local server started on port ${this.port}`);
+      logger.log(`[${new Date().toISOString()}] Local server started on port ${this.port}`);
     });
 
     this.wss.on('connection', (ws) => {
       this.clients.add(ws);
-      console.log(`[${new Date().toISOString()}] Desktop connected. Total: ${this.clients.size}`);
+      logger.log(`[${new Date().toISOString()}] Desktop connected. Total: ${this.clients.size}`);
 
       // 연결 확인 및 현재 상태 전송
       ws.send(JSON.stringify({
@@ -30,28 +31,28 @@ class LocalServer {
       ws.on('message', (message) => {
         try {
           const data = JSON.parse(message.toString());
-          console.log(`[${new Date().toISOString()}] From Desktop:`, data);
+          logger.log(`[${new Date().toISOString()}] From Desktop:`, data);
 
           if (this.onMessageCallback) {
             this.onMessageCallback(data, ws);
           }
         } catch (err) {
-          console.error(`[${new Date().toISOString()}] Invalid message from Desktop:`, message.toString());
+          logger.error(`[${new Date().toISOString()}] Invalid message from Desktop:`, message.toString());
         }
       });
 
       ws.on('close', () => {
         this.clients.delete(ws);
-        console.log(`[${new Date().toISOString()}] Desktop disconnected. Total: ${this.clients.size}`);
+        logger.log(`[${new Date().toISOString()}] Desktop disconnected. Total: ${this.clients.size}`);
       });
 
       ws.on('error', (err) => {
-        console.error(`[${new Date().toISOString()}] Desktop connection error:`, err.message);
+        logger.error(`[${new Date().toISOString()}] Desktop connection error:`, err.message);
       });
     });
 
     this.wss.on('error', (err) => {
-      console.error(`[${new Date().toISOString()}] Local server error:`, err.message);
+      logger.error(`[${new Date().toISOString()}] Local server error:`, err.message);
     });
   }
 

@@ -2,6 +2,7 @@ require('dotenv').config();
 const { execSync } = require('child_process');
 const path = require('path');
 const https = require('https');
+const logger = require('./logger');
 const RelayClient = require('./relayClient');
 const LocalServer = require('./localServer');
 
@@ -20,10 +21,10 @@ class Pylon {
   }
 
   async start() {
-    console.log(`[${new Date().toISOString()}] [Estelle Pylon v1.0] Starting...`);
-    console.log(`[${new Date().toISOString()}] Device ID: ${this.deviceId}`);
-    console.log(`[${new Date().toISOString()}] Relay URL: ${RELAY_URL}`);
-    console.log(`[${new Date().toISOString()}] Local Port: ${LOCAL_PORT}`);
+    logger.log(`[${new Date().toISOString()}] [Estelle Pylon v1.0] Starting...`);
+    logger.log(`[${new Date().toISOString()}] Device ID: ${this.deviceId}`);
+    logger.log(`[${new Date().toISOString()}] Relay URL: ${RELAY_URL}`);
+    logger.log(`[${new Date().toISOString()}] Local Port: ${LOCAL_PORT}`);
 
     // 시작 시 자동 업데이트 체크
     await this.checkAndUpdate();
@@ -127,13 +128,13 @@ class Pylon {
 
     // Graceful shutdown
     process.on('SIGINT', () => {
-      console.log(`\n[${new Date().toISOString()}] Shutting down...`);
+      logger.log(`\n[${new Date().toISOString()}] Shutting down...`);
       process.exit(0);
     });
   }
 
   handleDeploy(data, ws) {
-    console.log(`[${new Date().toISOString()}] Deploy requested, force: ${data.force}`);
+    logger.log(`[${new Date().toISOString()}] Deploy requested, force: ${data.force}`);
 
     try {
       const scriptPath = path.join(REPO_DIR, 'scripts', 'deploy.ps1');
@@ -149,7 +150,7 @@ class Pylon {
         }
       );
 
-      console.log(result);
+      logger.log(result);
 
       ws.send(JSON.stringify({
         type: 'deployResult',
@@ -164,7 +165,7 @@ class Pylon {
       });
 
     } catch (err) {
-      console.error(`[${new Date().toISOString()}] Deploy failed:`, err.message);
+      logger.error(`[${new Date().toISOString()}] Deploy failed:`, err.message);
       ws.send(JSON.stringify({
         type: 'deployResult',
         success: false,
@@ -181,14 +182,14 @@ class Pylon {
         return JSON.parse(fs.readFileSync(deployJsonPath, 'utf-8'));
       }
     } catch (err) {
-      console.error('Failed to read deploy.json:', err.message);
+      logger.error('Failed to read deploy.json:', err.message);
     }
     return null;
   }
 
   // 시작 시 deploy.json 체크하여 자동 업데이트
   async checkAndUpdate() {
-    console.log(`[${new Date().toISOString()}] Checking for updates...`);
+    logger.log(`[${new Date().toISOString()}] Checking for updates...`);
 
     try {
       // 현재 로컬 커밋
@@ -196,21 +197,21 @@ class Pylon {
         cwd: REPO_DIR,
         encoding: 'utf-8'
       }).trim();
-      console.log(`[${new Date().toISOString()}] Local commit: ${localCommit}`);
+      logger.log(`[${new Date().toISOString()}] Local commit: ${localCommit}`);
 
       // deploy.json 가져오기
       const deployInfo = await this.fetchDeployJson();
       if (!deployInfo) {
-        console.log(`[${new Date().toISOString()}] No deploy info found, skipping update`);
+        logger.log(`[${new Date().toISOString()}] No deploy info found, skipping update`);
         return;
       }
 
-      console.log(`[${new Date().toISOString()}] Deployed commit: ${deployInfo.commit}`);
-      console.log(`[${new Date().toISOString()}] Deployed version: ${deployInfo.pylon}`);
+      logger.log(`[${new Date().toISOString()}] Deployed commit: ${deployInfo.commit}`);
+      logger.log(`[${new Date().toISOString()}] Deployed version: ${deployInfo.pylon}`);
 
       // 커밋이 다르면 업데이트
       if (localCommit !== deployInfo.commit) {
-        console.log(`[${new Date().toISOString()}] Update available, syncing to deployed version...`);
+        logger.log(`[${new Date().toISOString()}] Update available, syncing to deployed version...`);
 
         // git fetch
         execSync('git fetch origin', { cwd: REPO_DIR, encoding: 'utf-8' });
@@ -220,10 +221,10 @@ class Pylon {
 
         // npm install (package-lock.json 변경 가능성)
         const pylonDir = path.join(REPO_DIR, 'estelle-pylon');
-        console.log(`[${new Date().toISOString()}] Running npm install...`);
+        logger.log(`[${new Date().toISOString()}] Running npm install...`);
         execSync('npm install', { cwd: pylonDir, encoding: 'utf-8' });
 
-        console.log(`[${new Date().toISOString()}] Updated to ${deployInfo.commit}, restarting...`);
+        logger.log(`[${new Date().toISOString()}] Updated to ${deployInfo.commit}, restarting...`);
 
         // 재시작 (Task Scheduler가 다시 시작)
         setTimeout(() => {
@@ -232,10 +233,10 @@ class Pylon {
         return;
       }
 
-      console.log(`[${new Date().toISOString()}] Already up to date`);
+      logger.log(`[${new Date().toISOString()}] Already up to date`);
 
     } catch (err) {
-      console.error(`[${new Date().toISOString()}] Update check failed:`, err.message);
+      logger.error(`[${new Date().toISOString()}] Update check failed:`, err.message);
       // 업데이트 실패해도 계속 실행
     }
   }
@@ -276,11 +277,11 @@ class Pylon {
   }
 
   handleUpdate(data) {
-    console.log(`[${new Date().toISOString()}] Update requested by: ${data.from}`);
+    logger.log(`[${new Date().toISOString()}] Update requested by: ${data.from}`);
 
     try {
       // git fetch
-      console.log(`[${new Date().toISOString()}] Running git fetch...`);
+      logger.log(`[${new Date().toISOString()}] Running git fetch...`);
       execSync('git fetch origin', { cwd: REPO_DIR, encoding: 'utf-8' });
 
       // 변경 확인
@@ -296,16 +297,16 @@ class Pylon {
         success: true,
         message: 'Already up to date'
       });
-      console.log(`[${new Date().toISOString()}] Already up to date`);
+      logger.log(`[${new Date().toISOString()}] Already up to date`);
 
     } catch (err) {
       // git diff가 변경 있을 때 exit code 1 반환
       if (err.status === 1) {
         try {
           // git pull
-          console.log(`[${new Date().toISOString()}] Changes detected, running git pull...`);
+          logger.log(`[${new Date().toISOString()}] Changes detected, running git pull...`);
           const pullResult = execSync('git pull origin master', { cwd: REPO_DIR, encoding: 'utf-8' });
-          console.log(pullResult);
+          logger.log(pullResult);
 
           // package-lock.json 변경 확인 후 npm install
           const pylonDir = path.join(REPO_DIR, 'estelle-pylon');
@@ -314,7 +315,7 @@ class Pylon {
               cwd: REPO_DIR,
               encoding: 'utf-8'
             });
-            console.log(`[${new Date().toISOString()}] package-lock.json changed, running npm install...`);
+            logger.log(`[${new Date().toISOString()}] package-lock.json changed, running npm install...`);
             execSync('npm install', { cwd: pylonDir, encoding: 'utf-8' });
           } catch (e) {
             // package-lock.json 변경 없음
@@ -328,13 +329,13 @@ class Pylon {
           });
 
           // 재시작 (Task Scheduler가 다시 시작함)
-          console.log(`[${new Date().toISOString()}] Restarting Pylon...`);
+          logger.log(`[${new Date().toISOString()}] Restarting Pylon...`);
           setTimeout(() => {
             process.exit(0);
           }, 1000);
 
         } catch (pullErr) {
-          console.error(`[${new Date().toISOString()}] Update failed:`, pullErr.message);
+          logger.error(`[${new Date().toISOString()}] Update failed:`, pullErr.message);
           this.relayClient.send({
             type: 'updateResult',
             success: false,
@@ -342,7 +343,7 @@ class Pylon {
           });
         }
       } else {
-        console.error(`[${new Date().toISOString()}] Git error:`, err.message);
+        logger.error(`[${new Date().toISOString()}] Git error:`, err.message);
         this.relayClient.send({
           type: 'updateResult',
           success: false,
@@ -357,7 +358,7 @@ class Pylon {
 if (require.main === module) {
   const pylon = new Pylon();
   pylon.start().catch(err => {
-    console.error(`[${new Date().toISOString()}] Fatal error:`, err);
+    logger.error(`[${new Date().toISOString()}] Fatal error:`, err);
     process.exit(1);
   });
 }
