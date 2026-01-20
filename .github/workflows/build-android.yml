@@ -28,7 +28,8 @@ jobs:
       - name: Update version
         run: |
           VERSION="${{ github.event.inputs.version }}"
-          VERSION_CODE=$(date +%m%d%H%M)
+          # versionCode: 2MMDDHHMM (2로 시작해서 leading zero 문제 회피)
+          VERSION_CODE="2$(date +%m%d%H%M)"
           sed -i "s/versionName = \".*\"/versionName = \"$VERSION\"/" estelle-mobile/app/build.gradle.kts
           sed -i "s/versionCode = [0-9]*/versionCode = $VERSION_CODE/" estelle-mobile/app/build.gradle.kts
           echo "Version: $VERSION (code: $VERSION_CODE)"
