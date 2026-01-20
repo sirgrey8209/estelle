@@ -67,21 +67,34 @@ DEVICE_ID=office-pc  # 또는 home-pc
 RELAY_URL=wss://estelle-relay.fly.dev
 ```
 
-### 3. Task Scheduler 등록 (관리자 권한)
+### 3. PM2 설정 (프로세스 관리)
+
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\install-service.ps1
+# PM2 전역 설치 (최초 1회)
+npm install -g pm2 pm2-windows-startup
+
+# Pylon 시작
+cd C:\WorkSpace\estelle
+pm2 start ecosystem.config.js
+pm2 save
+
+# Windows 시작 시 자동 실행 (관리자 권한)
+pm2-startup install
 ```
 
-### 4. 서비스 확인
+또는 스크립트로 한번에:
 ```powershell
-# Task 상태 확인
-Get-ScheduledTask -TaskName "EstellePylon"
+powershell -ExecutionPolicy Bypass -File scripts\install-pm2.ps1
+```
 
-# 수동 시작
-Start-ScheduledTask -TaskName "EstellePylon"
+### 4. PM2 명령어
 
-# 로그 확인
-Get-Content "$env:USERPROFILE\.estelle\pylon.log" -Tail 20
+```powershell
+pm2 status                 # 상태 확인
+pm2 logs estelle-pylon     # 로그 보기
+pm2 restart estelle-pylon  # 재시작
+pm2 stop estelle-pylon     # 중지
+pm2 delete estelle-pylon   # 삭제
 ```
 
 ---
@@ -142,11 +155,14 @@ powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1
 
 ### Pylon이 시작되지 않음
 ```powershell
-# Task 상태 확인
-Get-ScheduledTask -TaskName "EstellePylon" | Select-Object State, LastRunTime, LastTaskResult
+# PM2 상태 확인
+pm2 status
+
+# 로그 확인
+pm2 logs estelle-pylon --lines 50
 
 # 수동 실행으로 에러 확인
-cd C:\workspace\estelle\estelle-pylon
+cd C:\WorkSpace\estelle\estelle-pylon
 npm start
 ```
 
@@ -181,6 +197,6 @@ PowerShell에서 전체 경로 사용:
 - [ ] Fly CLI 설치 + 인증
 - [ ] 리포지토리 클론
 - [ ] Pylon npm install + .env 설정
-- [ ] Task Scheduler 등록
+- [ ] PM2 설치 + startup 등록
 - [ ] Desktop npm install
 - [ ] 시작 프로그램 등록 (선택)

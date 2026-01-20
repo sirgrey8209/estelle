@@ -192,6 +192,42 @@ Claude Code 재시작 후 MCP 도구 사용 가능:
 - JSON 문법 오류 확인
 - Claude Code 재시작
 
+## 8. PM2 설정 (Pylon 자동 실행)
+
+### 8.1 PM2 설치
+
+```bash
+npm install -g pm2 pm2-windows-startup
+```
+
+### 8.2 Pylon 시작
+
+```bash
+cd estelle
+pm2 start ecosystem.config.js
+pm2 save
+```
+
+### 8.3 Windows 시작 시 자동 실행 (관리자 권한)
+
+```bash
+pm2-startup install
+```
+
+또는 스크립트로 한번에:
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install-pm2.ps1
+```
+
+### 8.4 PM2 명령어
+
+| 명령어 | 설명 |
+|--------|------|
+| `pm2 status` | 상태 확인 |
+| `pm2 logs estelle-pylon` | 로그 보기 |
+| `pm2 restart estelle-pylon` | 재시작 |
+| `pm2 stop estelle-pylon` | 중지 |
+
 ## 다음 단계
 
 설치 완료 후:
