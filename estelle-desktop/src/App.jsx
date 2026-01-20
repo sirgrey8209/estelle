@@ -4,6 +4,24 @@ const PYLON_URL = 'ws://localhost:9000';
 const GITHUB_DEPLOY_URL = 'https://github.com/sirgrey8209/estelle/releases/download/deploy/deploy.json';
 const LOCAL_VERSION = '1.0.0';  // package.json과 동기화 필요
 
+// 캐릭터 설정
+const CHARACTERS = {
+  estelle: { name: 'Estelle', icon: '💫', role: 'Relay' },
+  stella:  { name: 'Stella',  icon: '⭐', role: '회사 PC' },
+  selene:  { name: 'Selene',  icon: '🌙', role: '집 PC' },
+  lucy:    { name: 'Lucy',    icon: '📱', role: 'Mobile' },
+};
+
+const getCharacter = (deviceId, deviceType) => {
+  const id = deviceId?.toLowerCase();
+  if (CHARACTERS[id]) return CHARACTERS[id];
+  // fallback by deviceType
+  if (deviceType === 'mobile') return { name: deviceId, icon: '📱', role: 'Mobile' };
+  if (deviceType === 'pylon') return { name: deviceId, icon: '💻', role: 'Pylon' };
+  if (deviceType === 'desktop') return { name: deviceId, icon: '🖥️', role: 'Desktop' };
+  return { name: deviceId, icon: '❓', role: deviceType };
+};
+
 // WebSocket을 모듈 레벨에서 관리 (HMR에서 연결 유지)
 let globalWs = null;
 let globalWsConnected = false;
@@ -368,17 +386,16 @@ function App() {
             {devices.length === 0 ? (
               <span className="no-devices">No devices connected</span>
             ) : (
-              devices.map((device, i) => (
-                <div key={i} className="device-item">
-                  <span className="device-icon">
-                    {device.deviceType === 'pylon' ? '💻' :
-                     device.deviceType === 'mobile' ? '📱' :
-                     device.deviceType === 'desktop' ? '🖥️' : '❓'}
-                  </span>
-                  <span className="device-name">{device.deviceId}</span>
-                  <span className="device-type">({device.deviceType})</span>
-                </div>
-              ))
+              devices.map((device, i) => {
+                const char = getCharacter(device.deviceId, device.deviceType);
+                return (
+                  <div key={i} className="device-item">
+                    <span className="device-icon">{char.icon}</span>
+                    <span className="device-name">{char.name}</span>
+                    <span className="device-type">({device.deviceType})</span>
+                  </div>
+                );
+              })
             )}
           </div>
         </div>
@@ -398,13 +415,17 @@ function App() {
               {chatMessages.length === 0 ? (
                 <div className="no-messages">No messages yet</div>
               ) : (
-                chatMessages.map((msg, i) => (
-                  <div key={i} className="chat-message">
-                    <span className="chat-time">{msg.time}</span>
-                    <span className="chat-from">{msg.from}:</span>
-                    <span className="chat-text">{msg.message}</span>
-                  </div>
-                ))
+                chatMessages.map((msg, i) => {
+                  const char = getCharacter(msg.from, msg.deviceType);
+                  return (
+                    <div key={i} className="chat-message">
+                      <span className="chat-time">{msg.time}</span>
+                      <span className="chat-icon">{char.icon}</span>
+                      <span className="chat-from">{char.name}:</span>
+                      <span className="chat-text">{msg.message}</span>
+                    </div>
+                  );
+                })
               )}
               <div ref={chatEndRef} />
             </div>

@@ -22,6 +22,28 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.nexus.android.ui.theme.EstelleMobileTheme
 
+// 캐릭터 설정
+data class Character(val name: String, val icon: String, val role: String)
+
+val CHARACTERS = mapOf(
+    "estelle" to Character("Estelle", "💫", "Relay"),
+    "stella" to Character("Stella", "⭐", "회사 PC"),
+    "selene" to Character("Selene", "🌙", "집 PC"),
+    "lucy" to Character("Lucy", "📱", "Mobile"),
+)
+
+fun getCharacter(deviceId: String?, deviceType: String?): Character {
+    val id = deviceId?.lowercase()
+    CHARACTERS[id]?.let { return it }
+    // fallback by deviceType
+    return when (deviceType) {
+        "mobile" -> Character(deviceId ?: "Unknown", "📱", "Mobile")
+        "pylon" -> Character(deviceId ?: "Unknown", "💻", "Pylon")
+        "desktop" -> Character(deviceId ?: "Unknown", "🖥️", "Desktop")
+        else -> Character(deviceId ?: "Unknown", "❓", deviceType ?: "")
+    }
+}
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -178,6 +200,7 @@ fun EstelleScreen(viewModel: MainViewModel = viewModel()) {
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             items(devices) { device ->
+                val char = getCharacter(device.deviceId, device.deviceType)
                 Surface(
                     shape = RoundedCornerShape(16.dp),
                     color = MaterialTheme.colorScheme.surfaceVariant
@@ -188,16 +211,11 @@ fun EstelleScreen(viewModel: MainViewModel = viewModel()) {
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Text(
-                            text = when (device.deviceType) {
-                                "pylon" -> "\uD83D\uDCBB"
-                                "mobile" -> "\uD83D\uDCF1"
-                                "desktop" -> "\uD83D\uDDA5"
-                                else -> "❓"
-                            },
+                            text = char.icon,
                             fontSize = 14.sp
                         )
                         Text(
-                            text = device.deviceId,
+                            text = char.name,
                             fontSize = 13.sp
                         )
                     }
@@ -247,6 +265,7 @@ fun EstelleScreen(viewModel: MainViewModel = viewModel()) {
                     modifier = Modifier.fillMaxSize()
                 ) {
                     items(chatMessages) { message ->
+                        val char = getCharacter(message.from, message.deviceType)
                         Row(
                             modifier = Modifier.padding(vertical = 4.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -257,7 +276,11 @@ fun EstelleScreen(viewModel: MainViewModel = viewModel()) {
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
-                                text = "${message.from}:",
+                                text = char.icon,
+                                fontSize = 14.sp
+                            )
+                            Text(
+                                text = "${char.name}:",
                                 fontSize = 14.sp,
                                 color = Color(0xFF569CD6),
                                 fontWeight = FontWeight.Medium

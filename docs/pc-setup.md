@@ -117,7 +117,7 @@ copy .env.example .env
 
 `.env` 파일 편집:
 ```env
-DEVICE_ID=office-pc  # 또는 home-pc
+DEVICE_ID=stella  # 회사 PC는 stella, 집 PC는 selene
 RELAY_URL=wss://estelle-relay.fly.dev
 ```
 

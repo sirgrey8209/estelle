@@ -24,7 +24,7 @@ data class ChatMessage(
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     // 프로덕션 URL 사용
     private val relayUrl = "wss://estelle-relay.fly.dev"
-    private val deviceId = "mobile"
+    private val deviceId = "lucy"
 
     private val relayClient = RelayClient(relayUrl, deviceId)
     val updateChecker = UpdateChecker(application)
@@ -112,9 +112,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun requestDeploy() {
-        // office-pc 우선, 없으면 아무 pylon
+        // stella(회사PC) 우선, 없으면 아무 pylon
         val pylons = _devices.value.filter { it.deviceType == "pylon" }
-        val target = pylons.find { it.deviceId == "office-pc" }
+        val target = pylons.find { it.deviceId.lowercase() == "stella" }
             ?: pylons.firstOrNull()
 
         relayClient.sendDeployRequest(target?.deviceId)
