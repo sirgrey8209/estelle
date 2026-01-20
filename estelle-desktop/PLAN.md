@@ -1,4 +1,4 @@
-# nexus-desktop - 구현 계획
+# estelle-desktop - 구현 계획
 
 ## 역할
 
@@ -22,7 +22,7 @@ PC 네이티브 앱 (UI)
 ## 폴더 구조
 
 ```
-nexus-desktop/
+estelle-desktop/
 ├── PLAN.md
 ├── package.json
 ├── electron/
@@ -67,7 +67,7 @@ function App() {
 
   return (
     <div>
-      <h1>Nexus Desktop</h1>
+      <h1>Estelle Desktop</h1>
       <div>Status: {connected ? '🟢 Connected' : '🔴 Disconnected'}</div>
       <input value={message} onChange={e => setMessage(e.target.value)} />
       <button onClick={sendMessage}>Send</button>
@@ -90,7 +90,7 @@ ws.onmessage = (e) => console.log('From Pylon:', e.data);
 
 ```
 ┌─────────────────────────────────┐
-│ Nexus Desktop                   │
+│ Estelle Desktop                   │
 ├─────────────────────────────────┤
 │                                 │
 │  Pylon: 🟢 Connected            │

@@ -1,4 +1,4 @@
-# Nexus
+# Estelle
 
 올인원 태스크/프로젝트 관리 시스템
 
@@ -10,7 +10,7 @@
 
 ```
 ┌─────────────────────────────────────────────────┐
-│              ☁️ nexus-relay                     │
+│              ☁️ estelle-relay                     │
 │              (Fly.io, 443 포트)                 │
 │                     │                           │
 │              WSS (아웃바운드)                    │
@@ -44,10 +44,10 @@
 
 | # | 컴포넌트 | 역할 | 기술 스택 |
 |---|----------|------|-----------|
-| 1 | nexus-relay | 중계 서버 (Fly.io) | Node.js + ws |
-| 2 | nexus-pylon | PC 백그라운드 상주 + MCP | Node.js + ws + MCP SDK |
-| 3 | nexus-desktop | PC 네이티브 앱 (UI) | Electron + React |
-| 4 | nexus-android | 안드로이드 앱 | Kotlin + Jetpack Compose |
+| 1 | estelle-relay | 중계 서버 (Fly.io) | Node.js + ws |
+| 2 | estelle-pylon | PC 백그라운드 상주 + MCP | Node.js + ws + MCP SDK |
+| 3 | estelle-desktop | PC 네이티브 앱 (UI) | Electron + React |
+| 4 | estelle-mobile | 안드로이드 앱 | Kotlin + Jetpack Compose |
 
 ## 빠른 시작
 
@@ -55,41 +55,41 @@
 
 ```bash
 # Relay
-cd nexus-relay && npm install
+cd estelle-relay && npm install
 
 # Pylon
-cd nexus-pylon && npm install
+cd estelle-pylon && npm install
 
 # Desktop
-cd nexus-desktop && npm install
+cd estelle-desktop && npm install
 ```
 
 ### 2. 실행 (로컬 테스트)
 
 ```bash
 # 터미널 1: Relay 실행
-cd nexus-relay && npm start
+cd estelle-relay && npm start
 # → ws://localhost:8080 에서 실행
 
 # 터미널 2: Pylon 실행
-cd nexus-pylon && npm start
+cd estelle-pylon && npm start
 # → Relay 연결 + localhost:9000 에서 Desktop 대기
 
 # 터미널 3: Desktop 실행
-cd nexus-desktop && npm start
+cd estelle-desktop && npm start
 # → Electron 앱 실행
 ```
 
 ### 3. Android
 
-Android Studio에서 `nexus-android` 폴더를 열고 빌드/실행
+Android Studio에서 `estelle-mobile` 폴더를 열고 빌드/실행
 
 ## 컴포넌트별 상세
 
-### 1. nexus-relay (중계 서버)
+### 1. estelle-relay (중계 서버)
 
 ```
-nexus-relay/
+estelle-relay/
 ├── src/index.js      # WebSocket 서버
 ├── package.json
 ├── Dockerfile        # 컨테이너 빌드
@@ -107,10 +107,10 @@ nexus-relay/
 PORT=8080
 ```
 
-### 2. nexus-pylon (PC 백그라운드)
+### 2. estelle-pylon (PC 백그라운드)
 
 ```
-nexus-pylon/
+estelle-pylon/
 ├── src/
 │   ├── index.js        # 메인 진입점
 │   ├── relayClient.js  # Relay 연결
@@ -136,15 +136,15 @@ DEVICE_ID=home-pc
 **MCP 도구:**
 | 도구 | 설명 |
 |------|------|
-| `nexus_status` | 연결 상태 확인 |
-| `nexus_send` | 메시지 전송 |
-| `nexus_echo` | Echo 테스트 |
-| `nexus_desktop_notify` | Desktop 알림 |
+| `estelle_status` | 연결 상태 확인 |
+| `estelle_send` | 메시지 전송 |
+| `estelle_echo` | Echo 테스트 |
+| `estelle_desktop_notify` | Desktop 알림 |
 
-### 3. nexus-desktop (PC 앱)
+### 3. estelle-desktop (PC 앱)
 
 ```
-nexus-desktop/
+estelle-desktop/
 ├── electron/
 │   ├── main.js       # Electron 메인 프로세스
 │   └── preload.js    # IPC 브릿지
@@ -162,12 +162,12 @@ nexus-desktop/
 - 연결 상태 UI
 - Echo/Ping 테스트 UI
 
-### 4. nexus-android (안드로이드 앱)
+### 4. estelle-mobile (안드로이드 앱)
 
 ```
-nexus-android/
+estelle-mobile/
 ├── app/src/main/
-│   ├── java/com/nexus/android/
+│   ├── java/com/estelle/android/
 │   │   ├── MainActivity.kt    # 메인 액티비티
 │   │   ├── MainViewModel.kt   # ViewModel
 │   │   ├── RelayClient.kt     # WebSocket 클라이언트
@@ -195,7 +195,7 @@ nexus-android/
 │  [Claude Code]                                  │
 │       │ (MCP)                                   │
 │       ▼                                         │
-│  [nexus-pylon]          [nexus-desktop]        │
+│  [estelle-pylon]          [estelle-desktop]        │
 │   ├─ Relay 연결          ├─ Pylon 연결          │
 │   ├─ 파일 접근            ├─ UI                 │
 │   └─ 태스크 DB            └─ 알림               │
@@ -209,7 +209,7 @@ nexus-android/
 
 ```
 ┌─────────────────────────────────────────────────┐
-│              ☁️ nexus-relay                     │
+│              ☁️ estelle-relay                     │
 │              (Fly.io, 443)                     │
 │                     │                           │
 │       ┌─────────────┼─────────────┐             │
@@ -232,10 +232,10 @@ nexus-android/
 ```json
 {
   "mcpServers": {
-    "nexus-pylon": {
+    "estelle-pylon": {
       "command": "node",
       "args": ["src/mcp.js"],
-      "cwd": "C:\WorkSpace\nexus\nexus-pylon",
+      "cwd": "C:\WorkSpace\estelle\estelle-pylon",
       "env": {
         "RELAY_URL": "ws://localhost:8080",
         "LOCAL_PORT": "9000",
@@ -259,7 +259,7 @@ nexus-android/
 fly auth login
 
 # 3. 앱 생성 및 배포
-cd nexus-relay
+cd estelle-relay
 fly launch
 fly deploy
 ```
@@ -279,13 +279,13 @@ fly deploy
 ## 프로젝트 구조
 
 ```
-nexus/
+estelle/
 ├── README.md           # 이 문서
 ├── PLAN.md             # 구현 계획
-├── nexus-relay/        # 중계 서버
-├── nexus-pylon/        # PC 백그라운드 + MCP
-├── nexus-desktop/      # PC 앱
-└── nexus-android/      # 안드로이드 앱
+├── estelle-relay/        # 중계 서버
+├── estelle-pylon/        # PC 백그라운드 + MCP
+├── estelle-desktop/      # PC 앱
+└── estelle-mobile/      # 안드로이드 앱
 ```
 
 ## Phase 로드맵

@@ -1,4 +1,4 @@
-# nexus-pylon - 구현 계획
+# estelle-pylon - 구현 계획
 
 ## 역할
 
@@ -23,7 +23,7 @@ PC 백그라운드 상주 프로세스
 ## 폴더 구조
 
 ```
-nexus-pylon/
+estelle-pylon/
 ├── PLAN.md
 ├── package.json
 ├── .env.example

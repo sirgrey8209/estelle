@@ -1,9 +1,9 @@
 {
   "mcpServers": {
-    "nexus-pylon": {
+    "estelle-pylon": {
       "command": "node",
       "args": ["src/mcp.js"],
-      "cwd": "C:\\WorkSpace\\nexus\\nexus-pylon",
+      "cwd": "C:\\WorkSpace\\estelle\\estelle-pylon",
       "env": {
         "RELAY_URL": "ws://localhost:8080",
         "LOCAL_PORT": "9000",

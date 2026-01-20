@@ -1,4 +1,4 @@
-# nexus-relay - 구현 계획
+# estelle-relay - 구현 계획
 
 ## 역할
 
@@ -20,7 +20,7 @@
 ## 폴더 구조
 
 ```
-nexus-relay/
+estelle-relay/
 ├── PLAN.md
 ├── package.json
 ├── .env.example
