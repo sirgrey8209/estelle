@@ -182,11 +182,11 @@ Write-Host "GitHub Release created" -ForegroundColor Green
 # deploy.json 로컬 파일 삭제
 Remove-Item $DeployJsonPath -Force
 
-# 3. 연결된 클라이언트에 알림 (Relay를 통해)
+# 3. Android APK 빌드 (GitHub Actions)
 Write-Host ""
-Write-Host "Notifying clients..." -ForegroundColor Yellow
-# WebSocket으로 deploy 메시지 전송 (Desktop/Mobile이 처리)
-# 이 부분은 Desktop에서 Deploy 버튼을 누를 때 처리됨
+Write-Host "Triggering Android APK build..." -ForegroundColor Yellow
+& $GhExe workflow run build-android.yml --repo $GitHubRepo -f version=$NewMobileVersion
+Write-Host "Android build triggered (check GitHub Actions for progress)" -ForegroundColor Green
 
 Write-Host ""
 Write-Host "Deploy Complete!" -ForegroundColor Green

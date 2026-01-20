@@ -1,9 +1,12 @@
 name: Build Android APK
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (e.g., 1.0.m0-0120)'
+        required: true
+        type: string
 
 jobs:
   build:
@@ -21,6 +24,14 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
+
+      - name: Update version
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          VERSION_CODE=$(date +%m%d%H%M)
+          sed -i "s/versionName = \".*\"/versionName = \"$VERSION\"/" estelle-mobile/app/build.gradle.kts
+          sed -i "s/versionCode = [0-9]*/versionCode = $VERSION_CODE/" estelle-mobile/app/build.gradle.kts
+          echo "Version: $VERSION (code: $VERSION_CODE)"
 
       - name: Grant execute permission for gradlew
         run: chmod +x estelle-mobile/gradlew
@@ -42,31 +53,14 @@ jobs:
           BUILD_TOOLS_VERSION: "34.0.0"
 
       - name: Rename APK
+        run: mv ${{ steps.sign_app.outputs.signedReleaseFile }} estelle-mobile.apk
+
+      - name: Upload to deploy release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          mv ${{ steps.sign_app.outputs.signedReleaseFile }} estelle-mobile.apk
-
-      - name: Get version from tag
-        id: get_version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-
-      - name: Delete previous releases
-        uses: dev-drprasad/delete-older-releases@v0.3.2
-        with:
-          keep_latest: 0
-          delete_tags: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        with:
-          name: ${{ steps.get_version.outputs.VERSION }}
-          body: |
-            ## Estelle Mobile ${{ steps.get_version.outputs.VERSION }}
-
-            Download the APK below to install on your Android device.
-          files: estelle-mobile.apk
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 기존 APK 삭제
+          gh release delete-asset deploy estelle-mobile.apk --yes 2>/dev/null || true
+          # 새 APK 업로드
+          gh release upload deploy estelle-mobile.apk --clobber
+          echo "Uploaded estelle-mobile.apk to deploy release"

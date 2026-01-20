@@ -1,6 +1,7 @@
 require('dotenv').config();
 const { execSync } = require('child_process');
 const path = require('path');
+const https = require('https');
 const RelayClient = require('./relayClient');
 const LocalServer = require('./localServer');
 
@@ -9,6 +10,7 @@ const RELAY_URL = process.env.RELAY_URL || 'ws://localhost:8080';
 const LOCAL_PORT = parseInt(process.env.LOCAL_PORT) || 9000;
 const DEVICE_ID = process.env.DEVICE_ID || `pylon-${Date.now()}`;
 const REPO_DIR = path.resolve(__dirname, '..', '..');
+const DEPLOY_JSON_URL = 'https://github.com/sirgrey8209/nexus/releases/download/deploy/deploy.json';
 
 class Pylon {
   constructor() {
@@ -17,11 +19,14 @@ class Pylon {
     this.localServer = null;
   }
 
-  start() {
+  async start() {
     console.log(`[${new Date().toISOString()}] [Estelle Pylon v1.0] Starting...`);
     console.log(`[${new Date().toISOString()}] Device ID: ${this.deviceId}`);
     console.log(`[${new Date().toISOString()}] Relay URL: ${RELAY_URL}`);
     console.log(`[${new Date().toISOString()}] Local Port: ${LOCAL_PORT}`);
+
+    // 시작 시 자동 업데이트 체크
+    await this.checkAndUpdate();
 
     // Relay 클라이언트 초기화
     this.relayClient = new RelayClient(RELAY_URL, this.deviceId);
@@ -181,6 +186,95 @@ class Pylon {
     return null;
   }
 
+  // 시작 시 deploy.json 체크하여 자동 업데이트
+  async checkAndUpdate() {
+    console.log(`[${new Date().toISOString()}] Checking for updates...`);
+
+    try {
+      // 현재 로컬 커밋
+      const localCommit = execSync('git rev-parse --short HEAD', {
+        cwd: REPO_DIR,
+        encoding: 'utf-8'
+      }).trim();
+      console.log(`[${new Date().toISOString()}] Local commit: ${localCommit}`);
+
+      // deploy.json 가져오기
+      const deployInfo = await this.fetchDeployJson();
+      if (!deployInfo) {
+        console.log(`[${new Date().toISOString()}] No deploy info found, skipping update`);
+        return;
+      }
+
+      console.log(`[${new Date().toISOString()}] Deployed commit: ${deployInfo.commit}`);
+      console.log(`[${new Date().toISOString()}] Deployed version: ${deployInfo.pylon}`);
+
+      // 커밋이 다르면 업데이트
+      if (localCommit !== deployInfo.commit) {
+        console.log(`[${new Date().toISOString()}] Update available, syncing to deployed version...`);
+
+        // git fetch
+        execSync('git fetch origin', { cwd: REPO_DIR, encoding: 'utf-8' });
+
+        // 배포된 커밋으로 체크아웃
+        execSync(`git checkout ${deployInfo.commit}`, { cwd: REPO_DIR, encoding: 'utf-8' });
+
+        // npm install (package-lock.json 변경 가능성)
+        const pylonDir = path.join(REPO_DIR, 'estelle-pylon');
+        console.log(`[${new Date().toISOString()}] Running npm install...`);
+        execSync('npm install', { cwd: pylonDir, encoding: 'utf-8' });
+
+        console.log(`[${new Date().toISOString()}] Updated to ${deployInfo.commit}, restarting...`);
+
+        // 재시작 (Task Scheduler가 다시 시작)
+        setTimeout(() => {
+          process.exit(0);
+        }, 1000);
+        return;
+      }
+
+      console.log(`[${new Date().toISOString()}] Already up to date`);
+
+    } catch (err) {
+      console.error(`[${new Date().toISOString()}] Update check failed:`, err.message);
+      // 업데이트 실패해도 계속 실행
+    }
+  }
+
+  // deploy.json 가져오기
+  fetchDeployJson() {
+    return new Promise((resolve) => {
+      const url = `${DEPLOY_JSON_URL}?t=${Date.now()}`;
+
+      https.get(url, { headers: { 'User-Agent': 'Estelle-Pylon' } }, (res) => {
+        // GitHub redirect 처리
+        if (res.statusCode === 302 || res.statusCode === 301) {
+          https.get(res.headers.location, (res2) => {
+            let data = '';
+            res2.on('data', chunk => data += chunk);
+            res2.on('end', () => {
+              try {
+                resolve(JSON.parse(data));
+              } catch (e) {
+                resolve(null);
+              }
+            });
+          }).on('error', () => resolve(null));
+          return;
+        }
+
+        let data = '';
+        res.on('data', chunk => data += chunk);
+        res.on('end', () => {
+          try {
+            resolve(JSON.parse(data));
+          } catch (e) {
+            resolve(null);
+          }
+        });
+      }).on('error', () => resolve(null));
+    });
+  }
+
   handleUpdate(data) {
     console.log(`[${new Date().toISOString()}] Update requested by: ${data.from}`);
 
@@ -262,7 +356,10 @@ class Pylon {
 // 직접 실행 시
 if (require.main === module) {
   const pylon = new Pylon();
-  pylon.start();
+  pylon.start().catch(err => {
+    console.error(`[${new Date().toISOString()}] Fatal error:`, err);
+    process.exit(1);
+  });
 }
 
 module.exports = Pylon;
