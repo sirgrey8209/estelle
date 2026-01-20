@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 
 const PYLON_URL = 'ws://localhost:9000';
+const GITHUB_DEPLOY_URL = 'https://github.com/sirgrey8209/nexus/releases/download/deploy/deploy.json';
+const LOCAL_VERSION = '1.0.0';  // package.json과 동기화 필요
 
 function App() {
   const [pylonConnected, setPylonConnected] = useState(false);
@@ -9,7 +11,16 @@ function App() {
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const [logs, setLogs] = useState([]);
-  const [activeTab, setActiveTab] = useState('chat'); // 'chat' or 'logs'
+  const [activeTab, setActiveTab] = useState('chat');
+
+  // 배포 상태
+  const [deployInfo, setDeployInfo] = useState(null);  // GitHub에서 가져온 deploy.json
+  const [gitCommit, setGitCommit] = useState(null);    // 현재 Git 커밋
+  const [deployStatus, setDeployStatus] = useState('checking');  // 'checking', 'update', 'deploy', 'synced', 'deploying', 'error'
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [showRedeployConfirm, setShowRedeployConfirm] = useState(false);
+  const [pendingDeploy, setPendingDeploy] = useState(null);  // 실행 중 받은 배포 알림
+
   const wsRef = useRef(null);
   const isCleaningUp = useRef(false);
   const chatEndRef = useRef(null);
@@ -17,6 +28,85 @@ function App() {
   const addLog = (text, type = 'info') => {
     const timestamp = new Date().toLocaleTimeString();
     setLogs(prev => [...prev, { timestamp, text, type }].slice(-100));
+  };
+
+  // deploy.json 가져오기
+  const fetchDeployInfo = async () => {
+    try {
+      const response = await fetch(GITHUB_DEPLOY_URL + '?t=' + Date.now());
+      if (response.ok) {
+        const data = await response.json();
+        setDeployInfo(data);
+        addLog(`Deploy info: ${data.desktop}`, 'info');
+        return data;
+      }
+    } catch (err) {
+      addLog('No deploy info found', 'info');
+    }
+    return null;
+  };
+
+  // Git 커밋 가져오기 (Pylon을 통해)
+  const fetchGitCommit = () => {
+    if (wsRef.current && pylonConnected) {
+      wsRef.current.send(JSON.stringify({ type: 'getGitCommit' }));
+    }
+  };
+
+  // 배포 상태 계산
+  const calculateDeployStatus = (deploy, commit) => {
+    if (!deploy) {
+      setDeployStatus('deploy');  // 첫 배포
+      return;
+    }
+
+    const localBase = LOCAL_VERSION.split('-')[0];
+    const deployedBase = deploy.desktop?.split('-')[0];
+
+    // 로컬 < 배포 → Update 필요
+    if (localBase !== deployedBase || LOCAL_VERSION < deploy.desktop) {
+      setDeployStatus('update');
+      return;
+    }
+
+    // Git > 배포 → Deploy 가능
+    if (commit && commit !== deploy.commit) {
+      setDeployStatus('deploy');
+      return;
+    }
+
+    // 동일 → Synced
+    setDeployStatus('synced');
+  };
+
+  // 배포 실행
+  const executeDeploy = async (force = false) => {
+    if (deployStatus === 'update') {
+      // Update 필요 - Pylon에게 업데이트 요청
+      addLog('Requesting update...', 'info');
+      setDeployStatus('deploying');
+      wsRef.current?.send(JSON.stringify({
+        type: 'toRelay',
+        data: { type: 'update' }
+      }));
+      return;
+    }
+
+    if (deployStatus === 'synced' && !force) {
+      // Synced 상태에서 클릭 → 재배포 확인
+      setShowRedeployConfirm(true);
+      return;
+    }
+
+    // Deploy 실행
+    addLog('Starting deploy...', 'info');
+    setDeployStatus('deploying');
+
+    // Pylon에게 deploy 스크립트 실행 요청
+    wsRef.current?.send(JSON.stringify({
+      type: 'runDeploy',
+      force: force
+    }));
   };
 
   const connectToPylon = () => {
@@ -30,15 +120,14 @@ function App() {
     ws.onopen = () => {
       setPylonConnected(true);
       addLog('Connected to Pylon', 'success');
-      // 디바이스 목록 요청
       ws.send(JSON.stringify({ type: 'getDevices' }));
+      ws.send(JSON.stringify({ type: 'getGitCommit' }));
     };
 
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
 
-        // Relay 상태 업데이트
         if (data.type === 'connected') {
           setRelayConnected(data.relayStatus || false);
         }
@@ -46,17 +135,30 @@ function App() {
           setRelayConnected(data.connected);
         }
 
-        // Relay에서 온 메시지 처리
+        // Git 커밋 응답
+        if (data.type === 'gitCommit') {
+          setGitCommit(data.commit);
+          addLog(`Git commit: ${data.commit}`, 'info');
+        }
+
+        // 배포 결과
+        if (data.type === 'deployResult') {
+          if (data.success) {
+            addLog('Deploy completed!', 'success');
+            fetchDeployInfo();  // 새 배포 정보 가져오기
+          } else {
+            addLog(`Deploy failed: ${data.message}`, 'error');
+            setDeployStatus('error');
+          }
+        }
+
         if (data.type === 'fromRelay' && data.data) {
           const relayData = data.data;
 
-          // 디바이스 상태 업데이트
           if (relayData.type === 'deviceStatus' || relayData.type === 'deviceList') {
             setDevices(relayData.devices || []);
-            addLog(`Devices: ${(relayData.devices || []).length} connected`, 'info');
           }
 
-          // 채팅 메시지
           if (relayData.type === 'chat') {
             setChatMessages(prev => [...prev, {
               from: relayData.from,
@@ -67,13 +169,28 @@ function App() {
             }].slice(-200));
           }
 
-          // 등록 확인
           if (relayData.type === 'registered') {
             addLog(`Registered as: ${relayData.deviceId}`, 'success');
           }
+
+          // 배포 알림 수신 (실행 중)
+          if (relayData.type === 'deployNotification') {
+            setPendingDeploy(relayData.deploy);
+            setShowUpdateModal(true);
+            addLog('New deployment available!', 'notification');
+          }
+
+          if (relayData.type === 'updateResult') {
+            if (relayData.success) {
+              addLog(`Update: ${relayData.message}`, 'success');
+              fetchDeployInfo();
+            } else {
+              addLog(`Update failed: ${relayData.message}`, 'error');
+              setDeployStatus('error');
+            }
+          }
         }
 
-        // 로그에 추가 (채팅 제외)
         if (data.type !== 'fromRelay' || (data.data && data.data.type !== 'chat')) {
           addLog(`Received: ${JSON.stringify(data).substring(0, 100)}...`, 'message');
         }
@@ -100,9 +217,12 @@ function App() {
     wsRef.current = ws;
   };
 
+  // 초기화
   useEffect(() => {
     isCleaningUp.current = false;
     connectToPylon();
+    fetchDeployInfo();
+
     return () => {
       isCleaningUp.current = true;
       if (wsRef.current) {
@@ -111,18 +231,18 @@ function App() {
     };
   }, []);
 
-  // 채팅 자동 스크롤
+  // deployInfo나 gitCommit 변경 시 상태 재계산
+  useEffect(() => {
+    calculateDeployStatus(deployInfo, gitCommit);
+  }, [deployInfo, gitCommit]);
+
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages]);
 
   const sendChat = () => {
     if (!chatInput.trim() || !wsRef.current || !pylonConnected) return;
-
-    wsRef.current.send(JSON.stringify({
-      type: 'chat',
-      message: chatInput
-    }));
+    wsRef.current.send(JSON.stringify({ type: 'chat', message: chatInput }));
     setChatInput('');
   };
 
@@ -133,10 +253,77 @@ function App() {
     }
   };
 
+  const getDeployButtonText = () => {
+    switch (deployStatus) {
+      case 'checking': return 'Checking...';
+      case 'update': return 'Update';
+      case 'deploy': return 'Deploy';
+      case 'synced': return 'Synced';
+      case 'deploying': return 'Deploying...';
+      case 'error': return 'Error';
+      default: return 'Deploy';
+    }
+  };
+
+  const getDeployButtonClass = () => {
+    switch (deployStatus) {
+      case 'update': return 'btn-update-needed';
+      case 'deploy': return 'btn-deploy';
+      case 'synced': return 'btn-synced';
+      case 'error': return 'btn-error';
+      default: return '';
+    }
+  };
+
   return (
     <div className="app">
+      {/* 업데이트 모달 */}
+      {showUpdateModal && (
+        <div className="modal-overlay">
+          <div className="modal">
+            <h2>Update Available</h2>
+            <p>A new version has been deployed.</p>
+            {pendingDeploy && (
+              <p className="version-info">Version: {pendingDeploy.desktop}</p>
+            )}
+            <div className="modal-buttons">
+              <button className="btn btn-primary" onClick={() => {
+                setShowUpdateModal(false);
+                executeDeploy();
+              }}>
+                Update Now
+              </button>
+              <button className="btn btn-secondary" onClick={() => setShowUpdateModal(false)}>
+                Later
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 재배포 확인 모달 */}
+      {showRedeployConfirm && (
+        <div className="modal-overlay">
+          <div className="modal">
+            <h2>Redeploy?</h2>
+            <p>Versions are identical. Do you want to redeploy?</p>
+            <div className="modal-buttons">
+              <button className="btn btn-primary" onClick={() => {
+                setShowRedeployConfirm(false);
+                executeDeploy(true);
+              }}>
+                Redeploy
+              </button>
+              <button className="btn btn-secondary" onClick={() => setShowRedeployConfirm(false)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <header className="header">
-        <h1>Estelle Desktop <span style={{fontSize: '12px', opacity: 0.7}}>v1.0.0</span></h1>
+        <h1>Estelle Desktop <span style={{fontSize: '12px', opacity: 0.7}}>v{LOCAL_VERSION}</span></h1>
         <div className="status-bar">
           <span className={`status ${pylonConnected ? 'connected' : 'disconnected'}`}>
             Pylon: {pylonConnected ? 'ON' : 'OFF'}
@@ -148,9 +335,17 @@ function App() {
       </header>
 
       <main className="main">
-        {/* 디바이스 상태 */}
         <div className="devices-section">
-          <h3>Connected Devices ({devices.length})</h3>
+          <div className="devices-header">
+            <h3>Connected Devices ({devices.length})</h3>
+            <button
+              onClick={() => executeDeploy()}
+              disabled={!pylonConnected || deployStatus === 'checking' || deployStatus === 'deploying'}
+              className={`btn btn-deploy-action ${getDeployButtonClass()}`}
+            >
+              {getDeployButtonText()}
+            </button>
+          </div>
           <div className="devices-list">
             {devices.length === 0 ? (
               <span className="no-devices">No devices connected</span>
@@ -170,23 +365,15 @@ function App() {
           </div>
         </div>
 
-        {/* 탭 */}
         <div className="tabs">
-          <button
-            className={`tab ${activeTab === 'chat' ? 'active' : ''}`}
-            onClick={() => setActiveTab('chat')}
-          >
+          <button className={`tab ${activeTab === 'chat' ? 'active' : ''}`} onClick={() => setActiveTab('chat')}>
             Chat
           </button>
-          <button
-            className={`tab ${activeTab === 'logs' ? 'active' : ''}`}
-            onClick={() => setActiveTab('logs')}
-          >
+          <button className={`tab ${activeTab === 'logs' ? 'active' : ''}`} onClick={() => setActiveTab('logs')}>
             Logs
           </button>
         </div>
 
-        {/* 채팅 탭 */}
         {activeTab === 'chat' && (
           <div className="chat-section">
             <div className="chat-messages">
@@ -224,7 +411,6 @@ function App() {
           </div>
         )}
 
-        {/* 로그 탭 */}
         {activeTab === 'logs' && (
           <div className="logs-section">
             <div className="log-container">

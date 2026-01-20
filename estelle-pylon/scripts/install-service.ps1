@@ -31,22 +31,12 @@ if (Get-ScheduledTask -TaskName $TaskName1 -ErrorAction SilentlyContinue) {
 Write-Host "$TaskName1 Task 등록 중..." -ForegroundColor Green
 Register-ScheduledTask -TaskName $TaskName1 -Action $Action1 -Trigger $Trigger1 -Principal $Principal1 -Settings $Settings1 -Description "Estelle Pylon - PC 시작 시 자동 실행"
 
-# Task 2: EstellePylonUpdater - 5분마다 업데이트 체크
+# 기존 EstellePylonUpdater Task 삭제 (더 이상 사용 안 함 - 수동 업데이트로 변경)
 $TaskName2 = "EstellePylonUpdater"
-$UpdaterScript = Join-Path $ScriptDir "updater.ps1"
-$Action2 = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-ExecutionPolicy Bypass -File `"$UpdaterScript`"" -WorkingDirectory $RepoDir
-$Trigger2 = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 5)
-$Principal2 = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
-$Settings2 = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
-
-# 기존 Task 삭제 (있으면)
 if (Get-ScheduledTask -TaskName $TaskName2 -ErrorAction SilentlyContinue) {
-    Write-Host "기존 $TaskName2 Task 삭제 중..." -ForegroundColor Yellow
+    Write-Host "기존 $TaskName2 Task 삭제 중... (수동 업데이트로 변경됨)" -ForegroundColor Yellow
     Unregister-ScheduledTask -TaskName $TaskName2 -Confirm:$false
 }
-
-Write-Host "$TaskName2 Task 등록 중..." -ForegroundColor Green
-Register-ScheduledTask -TaskName $TaskName2 -Action $Action2 -Trigger $Trigger2 -Principal $Principal2 -Settings $Settings2 -Description "Estelle Pylon - 5분마다 업데이트 체크"
 
 Write-Host ""
 Write-Host "설치 완료!" -ForegroundColor Green

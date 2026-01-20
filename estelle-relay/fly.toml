@@ -1,4 +1,4 @@
-app = "estelle-relay"
+app = "nexus-relay"
 primary_region = "nrt"  # Tokyo
 
 [build]

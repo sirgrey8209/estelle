@@ -142,6 +142,56 @@ wss.on('connection', (ws, req) => {
         }));
       }
 
+      // 업데이트 요청 - pylon에게 전달
+      if (data.type === 'update') {
+        const targetDeviceId = data.target; // 특정 pylon 지정 가능
+        let sent = false;
+
+        clients.forEach((c) => {
+          if (c.deviceType === 'pylon' && c.ws.readyState === WebSocket.OPEN) {
+            if (!targetDeviceId || c.deviceId === targetDeviceId) {
+              c.ws.send(JSON.stringify({
+                type: 'update',
+                from: client.deviceId || clientId,
+                timestamp: new Date().toISOString()
+              }));
+              sent = true;
+              console.log(`[${new Date().toISOString()}] Update request sent to ${c.deviceId}`);
+            }
+          }
+        });
+
+        // 요청자에게 결과 알림
+        ws.send(JSON.stringify({
+          type: 'updateRequestSent',
+          success: sent,
+          timestamp: new Date().toISOString()
+        }));
+      }
+
+      // 업데이트 결과 브로드캐스트
+      if (data.type === 'updateResult') {
+        broadcast({
+          type: 'updateResult',
+          from: client.deviceId || clientId,
+          success: data.success,
+          message: data.message,
+          timestamp: new Date().toISOString()
+        });
+        console.log(`[${new Date().toISOString()}] Update result from ${client.deviceId}: ${data.message}`);
+      }
+
+      // 배포 알림 브로드캐스트
+      if (data.type === 'deploy') {
+        broadcast({
+          type: 'deployNotification',
+          from: client.deviceId || clientId,
+          deploy: data.deploy,  // deploy.json 내용
+          timestamp: new Date().toISOString()
+        });
+        console.log(`[${new Date().toISOString()}] Deploy notification from ${client.deviceId}`);
+      }
+
     } catch (err) {
       console.error(`[${new Date().toISOString()}] Invalid message from ${clientId}:`, message.toString());
       ws.send(JSON.stringify({

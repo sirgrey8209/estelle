@@ -15,20 +15,31 @@ import java.io.FileOutputStream
 
 class UpdateChecker(private val context: Context) {
     private val client = OkHttpClient()
-    private val githubApiUrl = "https://api.github.com/repos/sirgrey8209/estelle/releases/latest"
+    private val deployJsonUrl = "https://github.com/sirgrey8209/nexus/releases/download/deploy/deploy.json"
+    private val apkUrl = "https://github.com/sirgrey8209/nexus/releases/download/deploy/estelle-mobile.apk"
     private val currentVersion = BuildConfig.VERSION_NAME
 
     data class UpdateInfo(
         val hasUpdate: Boolean,
         val latestVersion: String,
-        val downloadUrl: String?
+        val downloadUrl: String?,
+        val deployInfo: DeployInfo? = null
+    )
+
+    data class DeployInfo(
+        val commit: String,
+        val deployedAt: String,
+        val relay: String,
+        val pylon: String,
+        val desktop: String,
+        val mobile: String
     )
 
     suspend fun checkForUpdate(): UpdateInfo = withContext(Dispatchers.IO) {
         try {
+            // deploy.json 가져오기
             val request = Request.Builder()
-                .url(githubApiUrl)
-                .header("Accept", "application/vnd.github.v3+json")
+                .url("$deployJsonUrl?t=${System.currentTimeMillis()}")
                 .build()
 
             val response = client.newCall(request).execute()
@@ -37,22 +48,24 @@ class UpdateChecker(private val context: Context) {
             }
 
             val json = JSONObject(response.body?.string() ?: "")
-            val tagName = json.getString("tag_name")
-            val latestVersion = tagName.removePrefix("v")
+            val deployInfo = DeployInfo(
+                commit = json.optString("commit", ""),
+                deployedAt = json.optString("deployedAt", ""),
+                relay = json.optString("relay", ""),
+                pylon = json.optString("pylon", ""),
+                desktop = json.optString("desktop", ""),
+                mobile = json.optString("mobile", "")
+            )
 
-            // Find APK asset
-            val assets = json.getJSONArray("assets")
-            var apkUrl: String? = null
-            for (i in 0 until assets.length()) {
-                val asset = assets.getJSONObject(i)
-                if (asset.getString("name").endsWith(".apk")) {
-                    apkUrl = asset.getString("browser_download_url")
-                    break
-                }
-            }
-
+            val latestVersion = deployInfo.mobile
             val hasUpdate = isNewerVersion(latestVersion, currentVersion)
-            UpdateInfo(hasUpdate, latestVersion, apkUrl)
+
+            UpdateInfo(
+                hasUpdate = hasUpdate,
+                latestVersion = latestVersion,
+                downloadUrl = if (hasUpdate) apkUrl else null,
+                deployInfo = deployInfo
+            )
         } catch (e: Exception) {
             e.printStackTrace()
             UpdateInfo(false, currentVersion, null)
@@ -60,17 +73,31 @@ class UpdateChecker(private val context: Context) {
     }
 
     private fun isNewerVersion(latest: String, current: String): Boolean {
-        // Compare versions like "1.0.m1" vs "1.0.m0"
+        // 시간코드 포함 버전 비교: "1.0.m1-0120" vs "1.0.m0"
         try {
-            val latestParts = latest.replace("m", ".").split(".")
-            val currentParts = current.replace("m", ".").split(".")
+            // 기본 버전과 시간코드 분리
+            val latestParts = latest.split("-")
+            val currentParts = current.split("-")
 
-            for (i in 0 until maxOf(latestParts.size, currentParts.size)) {
-                val latestNum = latestParts.getOrNull(i)?.toIntOrNull() ?: 0
-                val currentNum = currentParts.getOrNull(i)?.toIntOrNull() ?: 0
+            val latestBase = latestParts[0]
+            val currentBase = currentParts[0]
+
+            // 기본 버전 비교 (1.0.m1 vs 1.0.m0)
+            val latestNums = latestBase.replace("m", ".").split(".").mapNotNull { it.toIntOrNull() }
+            val currentNums = currentBase.replace("m", ".").split(".").mapNotNull { it.toIntOrNull() }
+
+            for (i in 0 until maxOf(latestNums.size, currentNums.size)) {
+                val latestNum = latestNums.getOrElse(i) { 0 }
+                val currentNum = currentNums.getOrElse(i) { 0 }
                 if (latestNum > currentNum) return true
                 if (latestNum < currentNum) return false
             }
+
+            // 기본 버전이 같으면 시간코드 비교
+            val latestTimeCode = latestParts.getOrElse(1) { "0" }
+            val currentTimeCode = currentParts.getOrElse(1) { "0" }
+
+            return latestTimeCode > currentTimeCode
         } catch (e: Exception) {
             e.printStackTrace()
         }

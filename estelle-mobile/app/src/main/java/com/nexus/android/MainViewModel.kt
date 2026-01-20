@@ -88,6 +88,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
                 _chatMessages.value = (_chatMessages.value + chatMessage).takeLast(200)
             }
+            "deployNotification" -> {
+                // 실행 중 새 배포 알림 → 업데이트 확인
+                checkForUpdate()
+            }
         }
     }
 
