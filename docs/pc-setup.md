@@ -37,6 +37,60 @@ powershell -Command "iwr https://fly.io/install.ps1 -useb | iex"
 fly auth login
 ```
 
+### 5. Java 17 (Android 빌드용)
+```powershell
+winget install Microsoft.OpenJDK.17
+```
+
+### 6. Android SDK (Android 빌드용)
+
+**방법 1: Android Studio 설치 (권장)**
+```powershell
+winget install Google.AndroidStudio
+```
+- 설치 후 Android Studio 한 번 실행하면 SDK 자동 다운로드
+- SDK 경로: `%LOCALAPPDATA%\Android\Sdk`
+
+**방법 2: Command-line tools만 설치**
+```powershell
+# SDK 폴더 생성
+mkdir "$env:LOCALAPPDATA\Android\Sdk\cmdline-tools" -Force
+
+# cmdline-tools 다운로드 및 설치
+curl -L -o "$env:TEMP\cmdline-tools.zip" "https://dl.google.com/android/repository/commandlinetools-win-11076708_latest.zip"
+Expand-Archive "$env:TEMP\cmdline-tools.zip" -DestinationPath "$env:LOCALAPPDATA\Android\Sdk\cmdline-tools"
+Rename-Item "$env:LOCALAPPDATA\Android\Sdk\cmdline-tools\cmdline-tools" "latest"
+
+# SDK 컴포넌트 설치
+$env:JAVA_HOME = (Get-Item "C:\Program Files\Microsoft\jdk-17*").FullName
+& "$env:LOCALAPPDATA\Android\Sdk\cmdline-tools\latest\bin\sdkmanager.bat" --sdk_root="$env:LOCALAPPDATA\Android\Sdk" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+```
+
+### 7. 환경변수 설정 (Android 빌드용)
+```powershell
+# 영구 환경변수 설정
+[Environment]::SetEnvironmentVariable('JAVA_HOME', (Get-Item "C:\Program Files\Microsoft\jdk-17*").FullName, 'User')
+[Environment]::SetEnvironmentVariable('ANDROID_HOME', "$env:LOCALAPPDATA\Android\Sdk", 'User')
+```
+
+### 8. SDK 라이선스 수락
+```powershell
+# licenses 폴더 생성
+mkdir "$env:LOCALAPPDATA\Android\Sdk\licenses" -Force
+
+# 라이선스 파일 생성
+@"
+
+24333f8a63b6825ea9c5514f83c2829b004d1fee
+d56f5187479451eabf01fb78af6dfcb131a6481e
+"@ | Set-Content "$env:LOCALAPPDATA\Android\Sdk\licenses\android-sdk-license"
+
+@"
+
+84831b9409646a918e30573bab4c9c91346d8abd
+"@ | Set-Content "$env:LOCALAPPDATA\Android\Sdk\licenses\android-sdk-preview-license"
+```
+
 ---
 
 ## 리포지토리 클론
@@ -132,6 +186,8 @@ $Shortcut.Save()
 | Git | `C:\Program Files\Git\` |
 | GitHub CLI | `C:\Program Files\GitHub CLI\` |
 | Fly CLI | `%USERPROFILE%\.fly\bin\fly.exe` |
+| Java 17 | `C:\Program Files\Microsoft\jdk-17.*` |
+| Android SDK | `%LOCALAPPDATA%\Android\Sdk` |
 
 ---
 
@@ -179,24 +235,60 @@ PowerShell에서 전체 경로 사용:
 
 ---
 
-## Android 서명 키
+## Android 빌드 설정
 
-**Keystore 파일:** `estelle-release.keystore` (리포 루트, gitignore됨)
-- 집 PC 세팅 시 이 파일을 복사하세요
+### Keystore 파일
+**파일:** `estelle-release.keystore` (리포 루트, gitignore됨)
+- 새 PC 세팅 시 기존 PC에서 이 파일을 복사
 - 비밀번호는 `keystore-info.txt` 참조 (gitignore됨)
-- GitHub Secrets에 이미 등록되어 있어서 별도 설정 불필요
+
+### local.properties 설정
+`estelle-mobile/local.properties` 파일 생성 (gitignore됨):
+```properties
+sdk.dir=C:/Users/사용자명/AppData/Local/Android/Sdk
+KEYSTORE_FILE=C:/WorkSpace/estelle/estelle-release.keystore
+KEYSTORE_PASSWORD=비밀번호
+KEY_ALIAS=estelle
+KEY_PASSWORD=비밀번호
+```
+
+> **참고:** `sdk.dir`과 `KEYSTORE_FILE`은 해당 PC의 실제 경로로 설정
+
+### 빌드 테스트
+```powershell
+cd C:\WorkSpace\estelle\estelle-mobile
+.\build-release.cmd
+# 또는
+.\gradlew.bat assembleRelease --no-daemon
+```
+APK 출력 위치: `app/build/outputs/apk/release/app-release.apk`
 
 ---
 
 ## PC 간 동기화 체크리스트
 
 새 PC 세팅 시:
+
+**기본 도구**
 - [ ] Node.js 설치
 - [ ] Git 설치
 - [ ] GitHub CLI 설치 + 인증
 - [ ] Fly CLI 설치 + 인증
+
+**Android 빌드 환경**
+- [ ] Java 17 설치
+- [ ] Android SDK 설치 (Android Studio 또는 cmdline-tools)
+- [ ] 환경변수 설정 (JAVA_HOME, ANDROID_HOME)
+- [ ] SDK 라이선스 수락
+
+**프로젝트 설정**
 - [ ] 리포지토리 클론
 - [ ] Pylon npm install + .env 설정
 - [ ] PM2 설치 + startup 등록
 - [ ] Desktop npm install
 - [ ] 시작 프로그램 등록 (선택)
+
+**Android 빌드 설정**
+- [ ] `estelle-release.keystore` 복사 (기존 PC에서)
+- [ ] `estelle-mobile/local.properties` 생성
+- [ ] 빌드 테스트 (`build-release.cmd`)

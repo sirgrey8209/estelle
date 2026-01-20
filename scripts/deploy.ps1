@@ -16,6 +16,48 @@ $VersionFile = Join-Path $RepoDir "version.json"
 $FlyExe = Join-Path $env:USERPROFILE ".fly\bin\fly.exe"
 $GhExe = "C:\Program Files\GitHub CLI\gh.exe"
 
+# Java 자동 감지 (JAVA_HOME이 없는 경우)
+if (-not $env:JAVA_HOME) {
+    $JavaPaths = @(
+        "C:\Program Files\Microsoft\jdk-17*",
+        "C:\Program Files\Eclipse Adoptium\jdk-17*",
+        "C:\Program Files\Java\jdk-17*",
+        "C:\Program Files\Android\Android Studio\jbr"
+    )
+    foreach ($pattern in $JavaPaths) {
+        $found = Get-Item $pattern -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($found) {
+            $env:JAVA_HOME = $found.FullName
+            Write-Host "Auto-detected JAVA_HOME: $env:JAVA_HOME" -ForegroundColor Gray
+            break
+        }
+    }
+}
+if (-not $env:JAVA_HOME) {
+    Write-Host "ERROR: JAVA_HOME not found. Install JDK 17." -ForegroundColor Red
+    exit 1
+}
+$env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
+
+# Android SDK 자동 감지 (ANDROID_HOME이 없는 경우)
+if (-not $env:ANDROID_HOME) {
+    $SdkPaths = @(
+        "$env:LOCALAPPDATA\Android\Sdk",
+        "$env:USERPROFILE\AppData\Local\Android\Sdk"
+    )
+    foreach ($path in $SdkPaths) {
+        if (Test-Path $path) {
+            $env:ANDROID_HOME = $path
+            Write-Host "Auto-detected ANDROID_HOME: $env:ANDROID_HOME" -ForegroundColor Gray
+            break
+        }
+    }
+}
+if (-not $env:ANDROID_HOME) {
+    Write-Host "ERROR: ANDROID_HOME not found. Install Android SDK." -ForegroundColor Red
+    exit 1
+}
+
 # GitHub 설정
 $GitHubRepo = "sirgrey8209/estelle"
 $ReleaseName = "deploy"
@@ -201,11 +243,44 @@ Write-Host "GitHub Release created" -ForegroundColor Green
 # deploy.json 로컬 파일 삭제
 Remove-Item $DeployJsonPath -Force
 
-# 3. Android APK 빌드 (GitHub Actions)
+# 3. Android APK 로컬 빌드
 Write-Host ""
-Write-Host "Triggering Android APK build..." -ForegroundColor Yellow
-& $GhExe workflow run build-android.yml --repo $GitHubRepo -f version=$NewMobileVersion
-Write-Host "Android build triggered (check GitHub Actions for progress)" -ForegroundColor Green
+Write-Host "Building Android APK locally..." -ForegroundColor Yellow
+
+$MobileDir = Join-Path $RepoDir "estelle-mobile"
+$GradleWrapper = Join-Path $MobileDir "gradlew.bat"
+
+# version.properties 업데이트
+$VersionPropsPath = Join-Path $MobileDir "version.properties"
+@"
+VERSION_NAME=$NewMobileVersion
+VERSION_CODE=$((Get-Date -UFormat %s) -replace '\..*', '')
+"@ | Set-Content $VersionPropsPath
+
+# Gradle 빌드
+Push-Location $MobileDir
+try {
+    & $GradleWrapper assembleRelease --no-daemon
+    if ($LASTEXITCODE -ne 0) {
+        throw "Gradle build failed"
+    }
+} finally {
+    Pop-Location
+}
+
+# APK 파일 찾기
+$ApkPath = Get-ChildItem -Path "$MobileDir\app\build\outputs\apk\release\*.apk" | Select-Object -First 1
+if (-not $ApkPath) {
+    Write-Host "APK not found!" -ForegroundColor Red
+    exit 1
+}
+
+Write-Host "APK built: $($ApkPath.Name)" -ForegroundColor Green
+
+# GitHub Release에 APK 업로드
+Write-Host "Uploading APK to GitHub Release..." -ForegroundColor Yellow
+& $GhExe release upload $ReleaseName $ApkPath.FullName --repo $GitHubRepo --clobber
+Write-Host "APK uploaded" -ForegroundColor Green
 
 Write-Host ""
 Write-Host "Deploy Complete!" -ForegroundColor Green

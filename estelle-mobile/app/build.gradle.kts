@@ -1,18 +1,47 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+}
+
+// version.properties에서 버전 정보 읽기
+val versionProps = Properties().apply {
+    val propsFile = rootProject.file("version.properties")
+    if (propsFile.exists()) {
+        load(propsFile.inputStream())
+    }
+}
+val appVersionName = versionProps.getProperty("VERSION_NAME", "1.0.m0")
+val appVersionCode = versionProps.getProperty("VERSION_CODE", "1").toIntOrNull() ?: 1
+
+// local.properties에서 서명 정보 읽기
+val localProps = Properties().apply {
+    val propsFile = rootProject.file("local.properties")
+    if (propsFile.exists()) {
+        load(propsFile.inputStream())
+    }
 }
 
 android {
     namespace = "com.nexus.android"
     compileSdk = 34
 
+    signingConfigs {
+        create("release") {
+            storeFile = file(localProps.getProperty("KEYSTORE_FILE", "../estelle-release.keystore"))
+            storePassword = localProps.getProperty("KEYSTORE_PASSWORD", "")
+            keyAlias = localProps.getProperty("KEY_ALIAS", "estelle")
+            keyPassword = localProps.getProperty("KEY_PASSWORD", "")
+        }
+    }
+
     defaultConfig {
         applicationId = "com.nexus.android"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.m0"
+        versionCode = appVersionCode
+        versionName = appVersionName
 
         vectorDrawables {
             useSupportLibrary = true
@@ -22,6 +51,7 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
