@@ -118,19 +118,38 @@ function Get-TimeCode {
     return $Now.ToString("MMddHHmmss")
 }
 
-# 이전 시간코드 추출
-$PrevTimeCode = ""
-if ($DeployedInfo -and $DeployedInfo.relay -match "-(\d+)$") {
-    $PrevTimeCode = $Matches[1]
+# 버전 비교: 이전 배포와 기본 버전이 같은지 확인
+$NeedTimeCode = $false
+if ($DeployedInfo) {
+    # 이전 배포의 기본 버전 추출 (타임코드 제외)
+    $PrevRelayBase = ($DeployedInfo.relay -split "-")[0]
+
+    # 기본 버전이 같으면 타임코드 필요
+    if ($PrevRelayBase -eq $RelayVersion) {
+        $NeedTimeCode = $true
+    }
 }
 
-$TimeCode = Get-TimeCode -PrevTimeCode $PrevTimeCode
-
 # 새 버전 생성
-$NewRelayVersion = "$RelayVersion-$TimeCode"
-$NewPylonVersion = "$PylonVersion-$TimeCode"
-$NewDesktopVersion = "$DesktopVersion-$TimeCode"
-$NewMobileVersion = "$MobileVersion-$TimeCode"
+if ($NeedTimeCode) {
+    # 이전 시간코드 추출
+    $PrevTimeCode = ""
+    if ($DeployedInfo.relay -match "-(\d+)$") {
+        $PrevTimeCode = $Matches[1]
+    }
+    $TimeCode = Get-TimeCode -PrevTimeCode $PrevTimeCode
+
+    $NewRelayVersion = "$RelayVersion-$TimeCode"
+    $NewPylonVersion = "$PylonVersion-$TimeCode"
+    $NewDesktopVersion = "$DesktopVersion-$TimeCode"
+    $NewMobileVersion = "$MobileVersion-$TimeCode"
+} else {
+    # 첫 배포 또는 버전 업 → 타임코드 없이
+    $NewRelayVersion = $RelayVersion
+    $NewPylonVersion = $PylonVersion
+    $NewDesktopVersion = $DesktopVersion
+    $NewMobileVersion = $MobileVersion
+}
 
 Write-Host "New Deploy Versions:" -ForegroundColor Cyan
 Write-Host "  Relay:   $NewRelayVersion" -ForegroundColor White
