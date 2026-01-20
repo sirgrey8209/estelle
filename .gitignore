@@ -28,16 +28,19 @@ npm-debug.log*
 release/
 
 # Android
-nexus-android/.gradle/
-nexus-android/build/
-nexus-android/app/build/
-nexus-android/local.properties
-nexus-android/*.iml
-nexus-android/.idea/
+estelle-mobile/.gradle/
+estelle-mobile/build/
+estelle-mobile/app/build/
+estelle-mobile/local.properties
+estelle-mobile/*.iml
+estelle-mobile/.idea/
 
 # Temporary
 *.tmp
 *.temp
+
+# Runtime
+*.pid
 
 # Keystore
 *.keystore
