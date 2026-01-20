@@ -38,3 +38,7 @@ nexus-android/.idea/
 # Temporary
 *.tmp
 *.temp
+
+# Keystore
+*.keystore
+keystore-info.txt

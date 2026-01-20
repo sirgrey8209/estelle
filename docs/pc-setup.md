@@ -163,6 +163,15 @@ PowerShell에서 전체 경로 사용:
 
 ---
 
+## Android 서명 키
+
+**Keystore 파일:** `estelle-release.keystore` (리포 루트, gitignore됨)
+- 집 PC 세팅 시 이 파일을 복사하세요
+- 비밀번호는 `keystore-info.txt` 참조 (gitignore됨)
+- GitHub Secrets에 이미 등록되어 있어서 별도 설정 불필요
+
+---
+
 ## PC 간 동기화 체크리스트
 
 새 PC 세팅 시:
