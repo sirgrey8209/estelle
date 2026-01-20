@@ -8,6 +8,7 @@ function App() {
   const [message, setMessage] = useState('');
   const [logs, setLogs] = useState([]);
   const wsRef = useRef(null);
+  const isCleaningUp = useRef(false);
 
   const addLog = (text, type = 'info') => {
     const timestamp = new Date().toLocaleTimeString();
@@ -54,8 +55,10 @@ function App() {
       setRelayConnected(false);
       addLog('Disconnected from Pylon', 'error');
 
-      // 재연결 시도
-      setTimeout(connectToPylon, 3000);
+      // cleanup 중이 아닐 때만 재연결 시도
+      if (!isCleaningUp.current) {
+        setTimeout(connectToPylon, 3000);
+      }
     };
 
     ws.onerror = (err) => {
@@ -66,8 +69,10 @@ function App() {
   };
 
   useEffect(() => {
+    isCleaningUp.current = false;
     connectToPylon();
     return () => {
+      isCleaningUp.current = true;
       if (wsRef.current) {
         wsRef.current.close();
       }
