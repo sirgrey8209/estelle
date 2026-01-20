@@ -42,8 +42,8 @@ fly auth login
 ## 리포지토리 클론
 
 ```powershell
-git clone https://github.com/sirgrey8209/nexus C:\workspace\nexus
-cd C:\workspace\nexus
+git clone https://github.com/sirgrey8209/estelle C:\workspace\estelle
+cd C:\workspace\estelle
 ```
 
 ---
@@ -52,7 +52,7 @@ cd C:\workspace\nexus
 
 ### 1. 의존성 설치
 ```powershell
-cd C:\workspace\nexus\estelle-pylon
+cd C:\workspace\estelle\estelle-pylon
 npm install
 ```
 
@@ -64,7 +64,7 @@ copy .env.example .env
 `.env` 파일 편집:
 ```env
 DEVICE_ID=office-pc  # 또는 home-pc
-RELAY_URL=wss://nexus-relay.fly.dev
+RELAY_URL=wss://estelle-relay.fly.dev
 ```
 
 ### 3. Task Scheduler 등록 (관리자 권한)
@@ -90,7 +90,7 @@ Get-Content "$env:USERPROFILE\.estelle\pylon.log" -Tail 20
 
 ### 1. 의존성 설치
 ```powershell
-cd C:\workspace\nexus\estelle-desktop
+cd C:\workspace\estelle\estelle-desktop
 npm install
 ```
 
@@ -104,8 +104,8 @@ npm start
 ```powershell
 $WshShell = New-Object -ComObject WScript.Shell
 $Shortcut = $WshShell.CreateShortcut("$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\Estelle Desktop.lnk")
-$Shortcut.TargetPath = "C:\workspace\nexus\estelle-desktop\start.cmd"
-$Shortcut.WorkingDirectory = "C:\workspace\nexus\estelle-desktop"
+$Shortcut.TargetPath = "C:\workspace\estelle\estelle-desktop\start.cmd"
+$Shortcut.WorkingDirectory = "C:\workspace\estelle\estelle-desktop"
 $Shortcut.Save()
 ```
 
@@ -127,7 +127,7 @@ $Shortcut.Save()
 ### 배포 실행
 Desktop 앱에서 `Deploy` 버튼 클릭 또는:
 ```powershell
-cd C:\workspace\nexus
+cd C:\workspace\estelle
 powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1
 ```
 
@@ -146,7 +146,7 @@ powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1
 Get-ScheduledTask -TaskName "EstellePylon" | Select-Object State, LastRunTime, LastTaskResult
 
 # 수동 실행으로 에러 확인
-cd C:\workspace\nexus\estelle-pylon
+cd C:\workspace\estelle\estelle-pylon
 npm start
 ```
 

@@ -1,4 +1,4 @@
-# nexus-android - 구현 계획
+# estelle-mobile - 구현 계획
 
 ## 역할
 
@@ -23,15 +23,15 @@
 ## 폴더 구조
 
 ```
-nexus-android/
+estelle-mobile/
 ├── PLAN.md
 ├── app/
 │   ├── build.gradle.kts
 │   └── src/main/
 │       ├── AndroidManifest.xml
-│       ├── java/com/nexus/
+│       ├── java/com/estelle/
 │       │   ├── MainActivity.kt
-│       │   ├── NexusApp.kt
+│       │   ├── EstelleApp.kt
 │       │   └── network/
 │       │       └── RelayClient.kt
 │       └── res/
@@ -72,7 +72,7 @@ fun NexusScreen(viewModel: MainViewModel) {
     var message by remember { mutableStateOf("") }
 
     Column {
-        Text("Nexus Android")
+        Text("Estelle")
         Text(if (connected) "🟢 Connected" else "🔴 Disconnected")
 
         TextField(
@@ -97,7 +97,7 @@ fun NexusScreen(viewModel: MainViewModel) {
 
 ```
 ┌─────────────────────────────────┐
-│ Nexus                           │
+│ Estelle                           │
 ├─────────────────────────────────┤
 │                                 │
 │  Relay: 🟢 Connected            │
@@ -131,7 +131,7 @@ fun NexusScreen(viewModel: MainViewModel) {
 const val RELAY_URL = "ws://[집PC IP]:8080"
 
 // 프로덕션
-const val RELAY_URL = "wss://nexus-relay.fly.dev"
+const val RELAY_URL = "wss://estelle-relay.fly.dev"
 ```
 
 ## 다음 단계 (Phase 2)

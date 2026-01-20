@@ -1,25 +1,25 @@
-# Nexus 설치 가이드
+# Estelle 설치 가이드
 
-회사/집 PC에서 Nexus 환경 설정하는 방법
+회사/집 PC에서 Estelle 환경 설정하는 방법
 
 ## 1. 저장소 Clone
 
 ```bash
-git clone https://github.com/sirgrey8209/nexus.git
-cd nexus
+git clone https://github.com/sirgrey8209/estelle.git
+cd estelle
 ```
 
 ## 2. 의존성 설치
 
 ```bash
 # Relay
-cd nexus-relay && npm install
+cd estelle-relay && npm install
 
 # Pylon
-cd ../nexus-pylon && npm install
+cd ../estelle-pylon && npm install
 
 # Desktop
-cd ../nexus-desktop && npm install
+cd ../estelle-desktop && npm install
 
 # 루트로 복귀
 cd ..
@@ -27,10 +27,10 @@ cd ..
 
 ## 3. 환경 변수 설정
 
-### nexus-pylon/.env
+### estelle-pylon/.env
 
 ```bash
-cd nexus-pylon
+cd estelle-pylon
 cp .env.example .env
 ```
 
@@ -49,13 +49,13 @@ DEVICE_ID=office-pc
 
 ```bash
 # 터미널 1: Relay
-cd nexus-relay && npm start
+cd estelle-relay && npm start
 
 # 터미널 2: Pylon
-cd nexus-pylon && npm start
+cd estelle-pylon && npm start
 
 # 터미널 3: Desktop
-cd nexus-desktop && npm start
+cd estelle-desktop && npm start
 ```
 
 연결 확인:
@@ -90,10 +90,10 @@ fly auth login
 ### 5.3 앱 생성 및 배포
 
 ```bash
-cd nexus-relay
+cd estelle-relay
 
 # 앱 생성 (최초 1회)
-fly launch --name nexus-relay --region nrt --no-deploy
+fly launch --name estelle-relay --region nrt --no-deploy
 
 # 배포
 fly deploy
@@ -109,14 +109,14 @@ fly status
 
 배포된 URL 확인:
 ```
-https://nexus-relay.fly.dev
+https://estelle-relay.fly.dev
 ```
 
 ### 5.5 Pylon 설정 업데이트
 
-`nexus-pylon/.env` 수정:
+`estelle-pylon/.env` 수정:
 ```
-RELAY_URL=wss://nexus-relay.fly.dev
+RELAY_URL=wss://estelle-relay.fly.dev
 LOCAL_PORT=9000
 DEVICE_ID=office-pc
 ```
@@ -131,12 +131,12 @@ DEVICE_ID=office-pc
 ```json
 {
   "mcpServers": {
-    "nexus-pylon": {
+    "estelle-pylon": {
       "command": "node",
       "args": ["src/mcp.js"],
-      "cwd": "C:\\WorkSpace\\nexus\\nexus-pylon",
+      "cwd": "C:\\WorkSpace\\estelle\\estelle-pylon",
       "env": {
-        "RELAY_URL": "wss://nexus-relay.fly.dev",
+        "RELAY_URL": "wss://estelle-relay.fly.dev",
         "LOCAL_PORT": "9000",
         "DEVICE_ID": "office-pc"
       }
@@ -148,18 +148,18 @@ DEVICE_ID=office-pc
 > **주의**: `cwd` 경로를 실제 clone한 위치로 수정
 
 Claude Code 재시작 후 MCP 도구 사용 가능:
-- `nexus_status`: 연결 상태 확인
-- `nexus_send`: 메시지 전송
-- `nexus_echo`: Echo 테스트
-- `nexus_desktop_notify`: Desktop 알림
+- `estelle_status`: 연결 상태 확인
+- `estelle_send`: 메시지 전송
+- `estelle_echo`: Echo 테스트
+- `estelle_desktop_notify`: Desktop 알림
 
 ## 7. 전체 구조 확인
 
 ```
 [회사 PC]
-├── nexus-pylon (백그라운드 실행)
-│   └── wss://nexus-relay.fly.dev 연결
-├── nexus-desktop (UI 앱)
+├── estelle-pylon (백그라운드 실행)
+│   └── wss://estelle-relay.fly.dev 연결
+├── estelle-desktop (UI 앱)
 │   └── localhost:9000으로 pylon 연결
 └── Claude Code
     └── MCP로 pylon 제어
@@ -167,7 +167,7 @@ Claude Code 재시작 후 MCP 도구 사용 가능:
         ↕ (WSS 443)
 
 [Fly.io]
-└── nexus-relay (중계 서버)
+└── estelle-relay (중계 서버)
 
         ↕ (WSS 443)
 

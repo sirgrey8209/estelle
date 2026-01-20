@@ -10,7 +10,7 @@ class McpServer {
     this.pylon = pylon;
     this.server = new Server(
       {
-        name: 'nexus-pylon',
+        name: 'estelle-pylon',
         version: '1.0.0',
       },
       {
@@ -29,8 +29,8 @@ class McpServer {
       return {
         tools: [
           {
-            name: 'nexus_status',
-            description: 'Nexus 연결 상태 확인 (Relay, Desktop 연결 여부)',
+            name: 'estelle_status',
+            description: 'Estelle 연결 상태 확인 (Relay, Desktop 연결 여부)',
             inputSchema: {
               type: 'object',
               properties: {},
@@ -38,7 +38,7 @@ class McpServer {
             },
           },
           {
-            name: 'nexus_send',
+            name: 'estelle_send',
             description: 'Relay를 통해 메시지 전송',
             inputSchema: {
               type: 'object',
@@ -52,7 +52,7 @@ class McpServer {
             },
           },
           {
-            name: 'nexus_echo',
+            name: 'estelle_echo',
             description: 'Echo 테스트 (Relay 왕복 확인)',
             inputSchema: {
               type: 'object',
@@ -66,7 +66,7 @@ class McpServer {
             },
           },
           {
-            name: 'nexus_desktop_notify',
+            name: 'estelle_desktop_notify',
             description: 'Desktop 앱에 알림 전송',
             inputSchema: {
               type: 'object',
@@ -92,16 +92,16 @@ class McpServer {
       const { name, arguments: args } = request.params;
 
       switch (name) {
-        case 'nexus_status':
+        case 'estelle_status':
           return this.handleStatus();
 
-        case 'nexus_send':
+        case 'estelle_send':
           return this.handleSend(args.message);
 
-        case 'nexus_echo':
+        case 'estelle_echo':
           return this.handleEcho(args.payload);
 
-        case 'nexus_desktop_notify':
+        case 'estelle_desktop_notify':
           return this.handleDesktopNotify(args.title, args.message);
 
         default:
@@ -211,7 +211,7 @@ class McpServer {
 
     this.pylon.localServer.broadcast({
       type: 'notification',
-      title: title || 'Nexus',
+      title: title || 'Estelle',
       message: message,
     });
 
@@ -228,7 +228,7 @@ class McpServer {
   async start() {
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
-    console.error('[MCP] Nexus Pylon MCP Server started');
+    console.error('[MCP] Estelle Pylon MCP Server started');
   }
 }
 

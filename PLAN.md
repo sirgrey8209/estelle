@@ -1,4 +1,4 @@
-# Nexus - 구현 계획 (Phase 1: 기본 연결)
+# Estelle - 구현 계획 (Phase 1: 기본 연결)
 
 ## 목표
 
@@ -18,10 +18,10 @@
 
 | 컴포넌트 | 기술 |
 |----------|------|
-| nexus-relay | Node.js + ws |
-| nexus-pylon | Node.js + ws |
-| nexus-desktop | Electron + React |
-| nexus-android | Kotlin |
+| estelle-relay | Node.js + ws |
+| estelle-pylon | Node.js + ws |
+| estelle-desktop | Electron + React |
+| estelle-mobile | Kotlin |
 | 통신 | WebSocket (WSS 443) |
 | 인증 | IP + MAC 화이트리스트 |
 | 내부 통신 | localhost WebSocket |
