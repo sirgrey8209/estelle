@@ -139,6 +139,17 @@ class RelayClient(private val url: String, private val deviceId: String) {
         addMessage("Sent ping")
     }
 
+    fun sendDeployRequest(targetDeviceId: String? = null) {
+        val json = JSONObject().apply {
+            put("type", "deployRequest")
+            if (targetDeviceId != null) {
+                put("target", targetDeviceId)
+            }
+        }
+        webSocket?.send(json.toString())
+        addMessage("Sent deploy request${targetDeviceId?.let { " to $it" } ?: ""}")
+    }
+
     fun disconnect() {
         webSocket?.close(1000, "Goodbye")
         webSocket = null

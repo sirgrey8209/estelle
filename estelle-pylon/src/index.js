@@ -55,6 +55,12 @@ class Pylon {
         return;
       }
 
+      // 배포 요청 처리 (모바일에서 요청)
+      if (data.type === 'deployRequest') {
+        this.handleRemoteDeploy(data);
+        return;
+      }
+
       // Desktop으로 전달
       this.localServer.broadcast({
         type: 'fromRelay',
@@ -141,6 +147,50 @@ class Pylon {
       logger.log(`\n[${new Date().toISOString()}] Shutting down...`);
       process.exit(0);
     });
+  }
+
+  // 원격 배포 요청 처리 (모바일에서 요청)
+  handleRemoteDeploy(data) {
+    logger.log(`[${new Date().toISOString()}] Remote deploy requested by: ${data.from}`);
+
+    try {
+      const scriptPath = path.join(REPO_DIR, 'scripts', 'deploy.ps1');
+
+      // PowerShell로 deploy.ps1 실행
+      const result = execSync(
+        `powershell -ExecutionPolicy Bypass -File "${scriptPath}"`,
+        {
+          cwd: REPO_DIR,
+          encoding: 'utf-8',
+          timeout: 300000  // 5분 타임아웃
+        }
+      );
+
+      logger.log(result);
+
+      // Relay에 결과 전송
+      this.relayClient.send({
+        type: 'deployResult',
+        success: true,
+        message: 'Deploy completed',
+        from: this.deviceId
+      });
+
+      // 배포 완료 후 Relay에 알림 전파
+      this.relayClient.send({
+        type: 'deploy',
+        deploy: this.getDeployInfo()
+      });
+
+    } catch (err) {
+      logger.error(`[${new Date().toISOString()}] Remote deploy failed:`, err.message);
+      this.relayClient.send({
+        type: 'deployResult',
+        success: false,
+        message: err.message,
+        from: this.deviceId
+      });
+    }
   }
 
   handleDeploy(data, ws) {

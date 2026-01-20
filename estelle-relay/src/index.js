@@ -169,6 +169,44 @@ wss.on('connection', (ws, req) => {
         }));
       }
 
+      // 배포 요청 - pylon에게 전달 (office-pc 우선)
+      if (data.type === 'deployRequest') {
+        const targetDeviceId = data.target;
+        let sent = false;
+        let targetPylon = null;
+
+        // target이 지정되면 해당 pylon에게, 아니면 office-pc 우선
+        clients.forEach((c) => {
+          if (c.deviceType === 'pylon' && c.ws.readyState === WebSocket.OPEN) {
+            if (targetDeviceId && c.deviceId === targetDeviceId) {
+              targetPylon = c;
+            } else if (!targetDeviceId) {
+              if (c.deviceId === 'office-pc' || !targetPylon) {
+                targetPylon = c;
+              }
+            }
+          }
+        });
+
+        if (targetPylon) {
+          targetPylon.ws.send(JSON.stringify({
+            type: 'deployRequest',
+            from: client.deviceId || clientId,
+            timestamp: new Date().toISOString()
+          }));
+          sent = true;
+          console.log(`[${new Date().toISOString()}] Deploy request sent to ${targetPylon.deviceId}`);
+        }
+
+        // 요청자에게 결과 알림
+        ws.send(JSON.stringify({
+          type: 'deployRequestSent',
+          success: sent,
+          target: targetPylon?.deviceId || null,
+          timestamp: new Date().toISOString()
+        }));
+      }
+
       // 업데이트 결과 브로드캐스트
       if (data.type === 'updateResult') {
         broadcast({

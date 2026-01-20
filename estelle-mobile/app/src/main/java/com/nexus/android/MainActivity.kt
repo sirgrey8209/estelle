@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -134,6 +135,17 @@ fun EstelleScreen(viewModel: MainViewModel = viewModel()) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                // Deploy 버튼
+                Button(
+                    onClick = { viewModel.requestDeploy() },
+                    enabled = isConnected && devices.any { it.deviceType == "pylon" },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF569CD6)
+                    ),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                ) {
+                    Text("Deploy", fontSize = 13.sp)
+                }
                 Text(
                     text = if (isConnected) "ON" else "OFF",
                     fontSize = 14.sp,
