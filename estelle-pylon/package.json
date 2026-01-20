@@ -1,0 +1,23 @@
+{
+  "name": "estelle-pylon",
+  "version": "1.0",
+  "description": "Estelle PC Background Agent with MCP",
+  "main": "src/index.js",
+  "bin": {
+    "estelle-pylon": "src/index.js",
+    "estelle-pylon-mcp": "src/mcp.js"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "mcp": "node src/mcp.js",
+    "dev": "node src/index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "dotenv": "^17.2.3",
+    "ws": "^8.19.0"
+  }
+}

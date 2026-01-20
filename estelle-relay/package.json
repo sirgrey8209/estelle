@@ -1,0 +1,17 @@
+{
+  "name": "estelle-relay",
+  "version": "1",
+  "description": "Estelle WebSocket Relay Server",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node src/index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "ws": "^8.19.0"
+  }
+}

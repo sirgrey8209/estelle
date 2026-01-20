@@ -1,0 +1,329 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  background-color: #1e1e1e;
+  color: #e0e0e0;
+}
+
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  background-color: #2d2d2d;
+  padding: 16px 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #404040;
+}
+
+.header h1 {
+  font-size: 20px;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.status-bar {
+  display: flex;
+  gap: 16px;
+}
+
+.status {
+  font-size: 14px;
+  padding: 4px 12px;
+  border-radius: 12px;
+  background-color: #3d3d3d;
+}
+
+.status.connected {
+  color: #4ec9b0;
+}
+
+.status.disconnected {
+  color: #f14c4c;
+}
+
+.main {
+  flex: 1;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow: hidden;
+}
+
+/* Devices Section */
+.devices-section {
+  background-color: #2d2d2d;
+  border: 1px solid #404040;
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+
+.devices-section h3 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: #808080;
+}
+
+.devices-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.device-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background-color: #3d3d3d;
+  padding: 6px 12px;
+  border-radius: 16px;
+  font-size: 13px;
+}
+
+.device-icon {
+  font-size: 14px;
+}
+
+.device-name {
+  color: #e0e0e0;
+  font-weight: 500;
+}
+
+.device-type {
+  color: #808080;
+  font-size: 12px;
+}
+
+.no-devices {
+  color: #606060;
+  font-style: italic;
+}
+
+/* Tabs */
+.tabs {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid #404040;
+  padding-bottom: 8px;
+}
+
+.tab {
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  background: none;
+  border: none;
+  color: #808080;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.tab:hover {
+  background-color: #3d3d3d;
+  color: #e0e0e0;
+}
+
+.tab.active {
+  background-color: #0078d4;
+  color: white;
+}
+
+/* Chat Section */
+.chat-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.chat-messages {
+  flex: 1;
+  background-color: #2d2d2d;
+  border: 1px solid #404040;
+  border-radius: 8px;
+  padding: 12px;
+  overflow-y: auto;
+  margin-bottom: 12px;
+}
+
+.chat-message {
+  padding: 6px 0;
+  font-size: 14px;
+  display: flex;
+  gap: 8px;
+}
+
+.chat-time {
+  color: #606060;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.chat-from {
+  color: #569cd6;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.chat-text {
+  color: #e0e0e0;
+  word-break: break-word;
+}
+
+.no-messages {
+  color: #606060;
+  font-style: italic;
+  text-align: center;
+  padding: 20px;
+}
+
+.chat-input-container {
+  display: flex;
+  gap: 12px;
+}
+
+.chat-input {
+  flex: 1;
+  padding: 12px 16px;
+  font-size: 14px;
+  border: 1px solid #404040;
+  border-radius: 8px;
+  background-color: #2d2d2d;
+  color: #e0e0e0;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.chat-input:focus {
+  border-color: #0078d4;
+}
+
+.chat-input::placeholder {
+  color: #808080;
+}
+
+.chat-input:disabled {
+  opacity: 0.5;
+}
+
+/* Logs Section */
+.logs-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.log-container {
+  flex: 1;
+  background-color: #2d2d2d;
+  border: 1px solid #404040;
+  border-radius: 8px;
+  padding: 12px;
+  overflow-y: auto;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 13px;
+}
+
+.log-entry {
+  padding: 4px 0;
+  display: flex;
+  gap: 12px;
+}
+
+.log-time {
+  color: #808080;
+  flex-shrink: 0;
+}
+
+.log-text {
+  word-break: break-all;
+}
+
+.log-info .log-text {
+  color: #a0a0a0;
+}
+
+.log-success .log-text {
+  color: #4ec9b0;
+}
+
+.log-error .log-text {
+  color: #f14c4c;
+}
+
+.log-sent .log-text {
+  color: #569cd6;
+}
+
+.log-message .log-text {
+  color: #dcdcaa;
+}
+
+.log-notification .log-text {
+  color: #ce9178;
+}
+
+/* Buttons */
+.btn {
+  padding: 12px 24px;
+  font-size: 14px;
+  font-weight: 500;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.2s, opacity 0.2s;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background-color: #0078d4;
+  color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background-color: #006cbd;
+}
+
+.btn-secondary {
+  background-color: #404040;
+  color: white;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background-color: #505050;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #2d2d2d;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #505050;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #606060;
+}
