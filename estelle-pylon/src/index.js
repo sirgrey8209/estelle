@@ -5,23 +5,29 @@ const https = require('https');
 const logger = require('./logger');
 const RelayClient = require('./relayClient');
 const LocalServer = require('./localServer');
+const PidManager = require('./pidManager');
+const CommandWatcher = require('./commandWatcher');
 
 // 설정
 const RELAY_URL = process.env.RELAY_URL || 'ws://localhost:8080';
 const LOCAL_PORT = parseInt(process.env.LOCAL_PORT) || 9000;
 const DEVICE_ID = process.env.DEVICE_ID || `pylon-${Date.now()}`;
 const REPO_DIR = path.resolve(__dirname, '..', '..');
-const DEPLOY_JSON_URL = 'https://github.com/sirgrey8209/nexus/releases/download/deploy/deploy.json';
+const DEPLOY_JSON_URL = 'https://github.com/sirgrey8209/estelle/releases/download/deploy/deploy.json';
 
 class Pylon {
   constructor() {
     this.deviceId = DEVICE_ID;
     this.relayClient = null;
     this.localServer = null;
+    this.commandWatcher = null;
   }
 
   async start() {
-    logger.log(`[${new Date().toISOString()}] [Estelle Pylon v1.0] Starting...`);
+    // PID 관리 초기화 (기존 프로세스 종료)
+    PidManager.initialize();
+
+    logger.log(`[${new Date().toISOString()}] [Estelle Pylon v1.1] Starting...`);
     logger.log(`[${new Date().toISOString()}] Device ID: ${this.deviceId}`);
     logger.log(`[${new Date().toISOString()}] Relay URL: ${RELAY_URL}`);
     logger.log(`[${new Date().toISOString()}] Local Port: ${LOCAL_PORT}`);
@@ -125,6 +131,10 @@ class Pylon {
     // 시작
     this.localServer.start();
     this.relayClient.connect();
+
+    // 명령 파일 감시 시작
+    this.commandWatcher = new CommandWatcher(this);
+    this.commandWatcher.start();
 
     // Graceful shutdown
     process.on('SIGINT', () => {
