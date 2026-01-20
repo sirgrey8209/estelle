@@ -23,7 +23,7 @@ data class ChatMessage(
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     // 프로덕션 URL 사용
-    private val relayUrl = "wss://estelle-relay.fly.dev"
+    private val relayUrl = "wss://nexus-relay.fly.dev"
     private val deviceId = "android-${android.os.Build.MODEL.replace(" ", "-").lowercase()}"
 
     private val relayClient = RelayClient(relayUrl, deviceId)
