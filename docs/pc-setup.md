@@ -112,13 +112,11 @@ npm install
 
 ### 2. 환경변수 설정
 ```powershell
-copy .env.example .env
-```
+# 회사 PC
+copy .env.stella .env
 
-`.env` 파일 편집:
-```env
-DEVICE_ID=stella  # 회사 PC는 stella, 집 PC는 selene
-RELAY_URL=wss://estelle-relay.fly.dev
+# 집 PC
+copy .env.selene .env
 ```
 
 ### 3. PM2 설정 (프로세스 관리)
