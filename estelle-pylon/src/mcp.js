@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Nexus Pylon MCP Server
+ * Estelle Pylon MCP Server
  * 클로드 코드에서 이 파일을 MCP 서버로 등록하여 사용
  */
 

@@ -15,8 +15,8 @@ import java.io.FileOutputStream
 
 class UpdateChecker(private val context: Context) {
     private val client = OkHttpClient()
-    private val deployJsonUrl = "https://github.com/sirgrey8209/nexus/releases/download/deploy/deploy.json"
-    private val apkUrl = "https://github.com/sirgrey8209/nexus/releases/download/deploy/estelle-mobile.apk"
+    private val deployJsonUrl = "https://github.com/sirgrey8209/estelle/releases/download/deploy/deploy.json"
+    private val apkUrl = "https://github.com/sirgrey8209/estelle/releases/download/deploy/estelle-mobile.apk"
     private val currentVersion = BuildConfig.VERSION_NAME
 
     data class UpdateInfo(

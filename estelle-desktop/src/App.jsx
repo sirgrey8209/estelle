@@ -1,8 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 
 const PYLON_URL = 'ws://localhost:9000';
-const GITHUB_DEPLOY_URL = 'https://github.com/sirgrey8209/nexus/releases/download/deploy/deploy.json';
+const GITHUB_DEPLOY_URL = 'https://github.com/sirgrey8209/estelle/releases/download/deploy/deploy.json';
 const LOCAL_VERSION = '1.0.0';  // package.json과 동기화 필요
+
+// WebSocket을 모듈 레벨에서 관리 (HMR에서 연결 유지)
+let globalWs = null;
+let globalWsConnected = false;
 
 function App() {
   const [pylonConnected, setPylonConnected] = useState(false);
@@ -110,14 +114,27 @@ function App() {
   };
 
   const connectToPylon = () => {
-    if (wsRef.current) {
-      wsRef.current.close();
+    // 이미 연결된 globalWs가 있으면 재사용
+    if (globalWs && globalWs.readyState === WebSocket.OPEN) {
+      wsRef.current = globalWs;
+      setPylonConnected(true);
+      globalWs.send(JSON.stringify({ type: 'getDevices' }));
+      globalWs.send(JSON.stringify({ type: 'getGitCommit' }));
+      return;
+    }
+
+    // 연결 중이면 대기
+    if (globalWs && globalWs.readyState === WebSocket.CONNECTING) {
+      wsRef.current = globalWs;
+      return;
     }
 
     addLog('Connecting to Pylon...', 'info');
     const ws = new WebSocket(PYLON_URL);
+    globalWs = ws;
 
     ws.onopen = () => {
+      globalWsConnected = true;
       setPylonConnected(true);
       addLog('Connected to Pylon', 'success');
       ws.send(JSON.stringify({ type: 'getDevices' }));
@@ -200,6 +217,8 @@ function App() {
     };
 
     ws.onclose = () => {
+      globalWsConnected = false;
+      globalWs = null;
       setPylonConnected(false);
       setRelayConnected(false);
       setDevices([]);
@@ -225,9 +244,8 @@ function App() {
 
     return () => {
       isCleaningUp.current = true;
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
+      // HMR에서 연결 유지 - cleanup에서 닫지 않음
+      // 앱이 완전히 종료될 때는 브라우저가 알아서 닫음
     };
   }, []);
 

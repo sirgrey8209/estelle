@@ -17,7 +17,7 @@ $FlyExe = Join-Path $env:USERPROFILE ".fly\bin\fly.exe"
 $GhExe = "C:\Program Files\GitHub CLI\gh.exe"
 
 # GitHub 설정
-$GitHubRepo = "sirgrey8209/nexus"
+$GitHubRepo = "sirgrey8209/estelle"
 $ReleaseName = "deploy"
 
 Write-Host ""
