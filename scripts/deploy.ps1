@@ -12,6 +12,10 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoDir = Split-Path -Parent $ScriptDir
 $VersionFile = Join-Path $RepoDir "version.json"
 
+# 도구 경로
+$FlyExe = Join-Path $env:USERPROFILE ".fly\bin\fly.exe"
+$GhExe = "C:\Program Files\GitHub CLI\gh.exe"
+
 # GitHub 설정
 $GitHubRepo = "sirgrey8209/nexus"
 $ReleaseName = "deploy"
@@ -43,11 +47,11 @@ Write-Host ""
 Write-Host "Checking current deployment..." -ForegroundColor Yellow
 $DeployedInfo = $null
 try {
-    $ReleaseInfo = gh release view $ReleaseName --repo $GitHubRepo --json assets,body 2>$null | ConvertFrom-Json
+    $ReleaseInfo = & $GhExe release view $ReleaseName --repo $GitHubRepo --json assets,body 2>$null | ConvertFrom-Json
     if ($ReleaseInfo) {
         # deploy.json 다운로드
         $TempFile = Join-Path $env:TEMP "deploy.json"
-        gh release download $ReleaseName --repo $GitHubRepo --pattern "deploy.json" --output $TempFile --clobber 2>$null
+        & $GhExe release download $ReleaseName --repo $GitHubRepo --pattern "deploy.json" --output $TempFile --clobber 2>$null
         if (Test-Path $TempFile) {
             $DeployedInfo = Get-Content $TempFile | ConvertFrom-Json
             Remove-Item $TempFile -Force
@@ -152,7 +156,6 @@ Write-Host "Created deploy.json" -ForegroundColor Green
 # 1. Relay 배포
 Write-Host ""
 Write-Host "Deploying Relay..." -ForegroundColor Yellow
-$FlyExe = Join-Path $env:USERPROFILE ".fly\bin\fly.exe"
 Push-Location (Join-Path $RepoDir "estelle-relay")
 & $FlyExe deploy
 Pop-Location
@@ -163,10 +166,12 @@ Write-Host ""
 Write-Host "Creating GitHub Release..." -ForegroundColor Yellow
 
 # 기존 릴리스 삭제 (있으면)
-gh release delete $ReleaseName --repo $GitHubRepo --yes 2>$null
+$ErrorActionPreference = "SilentlyContinue"
+& $GhExe release delete $ReleaseName --repo $GitHubRepo --yes 2>&1 | Out-Null
+$ErrorActionPreference = "Stop"
 
 # 새 릴리스 생성
-gh release create $ReleaseName `
+& $GhExe release create $ReleaseName `
     --repo $GitHubRepo `
     --title "Estelle Deploy" `
     --notes "Deployed at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')`nCommit: $GitCommit" `
