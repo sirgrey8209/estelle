@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.nexus.android.ui.theme.EstelleMobileTheme
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
 // 캐릭터 설정
@@ -87,7 +88,8 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EstelleApp(viewModel: MainViewModel = viewModel()) {
-    var currentTab by remember { mutableStateOf(0) }  // 0: Claude, 1: Chat (legacy)
+    val pagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
+    val coroutineScope = rememberCoroutineScope()
 
     val isConnected by viewModel.isConnected.collectAsState()
     val updateInfo by viewModel.updateInfo.collectAsState()
@@ -149,34 +151,366 @@ fun EstelleApp(viewModel: MainViewModel = viewModel()) {
                     }
                 }
             )
-        },
-        bottomBar = {
-            NavigationBar {
-                NavigationBarItem(
-                    icon = { Icon(Icons.Default.Chat, contentDescription = "Claude") },
-                    label = { Text("Claude") },
-                    selected = currentTab == 0,
-                    onClick = { currentTab = 0 }
-                )
-                NavigationBarItem(
-                    icon = { Icon(Icons.Default.Forum, contentDescription = "Chat") },
-                    label = { Text("Chat") },
-                    selected = currentTab == 1,
-                    onClick = { currentTab = 1 }
-                )
-            }
         }
+        // bottomBar 제거 - 스와이프로 전환
     ) { padding ->
-        Box(modifier = Modifier.padding(padding)) {
-            when (currentTab) {
-                0 -> ClaudeScreen(viewModel)
-                1 -> LegacyChatScreen(viewModel)
+        Column(modifier = Modifier.padding(padding)) {
+            // 페이지 인디케이터
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.Center
+            ) {
+                repeat(2) { index ->
+                    Box(
+                        modifier = Modifier
+                            .padding(horizontal = 4.dp)
+                            .size(8.dp)
+                            .background(
+                                color = if (pagerState.currentPage == index)
+                                    MaterialTheme.colorScheme.primary
+                                else
+                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                                shape = RoundedCornerShape(4.dp)
+                            )
+                    )
+                }
+            }
+
+            // 스와이프 페이저
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize()
+            ) { page ->
+                when (page) {
+                    0 -> DeskListPage(
+                        viewModel = viewModel,
+                        onDeskSelected = {
+                            coroutineScope.launch {
+                                pagerState.animateScrollToPage(1)
+                            }
+                        }
+                    )
+                    1 -> ChatPage(viewModel = viewModel)
+                }
             }
         }
     }
 }
 
-// ============ Phase 2: Claude Screen ============
+// ============ DeskListPage (스와이프 페이지 0) ============
+
+@Composable
+fun DeskListPage(
+    viewModel: MainViewModel,
+    onDeskSelected: () -> Unit
+) {
+    val desks by viewModel.desks.collectAsState()
+    val selectedDesk by viewModel.selectedDesk.collectAsState()
+
+    // Pylon별로 그룹화
+    val pylonGroups = remember(desks) {
+        desks.groupBy { it.pcName to it.pcIcon }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        // 헤더
+        Text(
+            "Desks",
+            fontSize = 24.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(bottom = 16.dp)
+        )
+
+        if (pylonGroups.isEmpty()) {
+            // 연결된 Pylon 없음
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("💫", fontSize = 48.sp)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        "No Pylons connected",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        "← Swipe to chat",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    )
+                }
+            }
+        } else {
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                pylonGroups.forEach { (pylonInfo, pylonDesks) ->
+                    val (pcName, pcIcon) = pylonInfo
+
+                    // Pylon 헤더
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(pcIcon, fontSize = 24.sp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                pcName,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+
+                    // 데스크 목록
+                    items(pylonDesks) { desk ->
+                        val isSelected = desk.deskId == selectedDesk?.deskId
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    viewModel.selectDesk(desk)
+                                    onDeskSelected()
+                                },
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (isSelected) MaterialTheme.colorScheme.primaryContainer
+                            else MaterialTheme.colorScheme.surfaceVariant,
+                            tonalElevation = if (isSelected) 4.dp else 0.dp
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column {
+                                    Text(
+                                        desk.deskName,
+                                        fontWeight = FontWeight.Medium,
+                                        fontSize = 16.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Text(getStatusIcon(desk.status), fontSize = 12.sp)
+                                        Text(
+                                            desk.status,
+                                            fontSize = 12.sp,
+                                            color = getStatusColor(desk.status)
+                                        )
+                                    }
+                                }
+
+                                // 선택 표시
+                                if (isSelected) {
+                                    Icon(
+                                        Icons.Default.Check,
+                                        contentDescription = "Selected",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ============ ChatPage (스와이프 페이지 1) ============
+
+@Composable
+fun ChatPage(viewModel: MainViewModel) {
+    val selectedDesk by viewModel.selectedDesk.collectAsState()
+    val claudeMessages by viewModel.claudeMessages.collectAsState()
+    val currentTextBuffer by viewModel.currentTextBuffer.collectAsState()
+    val pendingPermission by viewModel.pendingPermission.collectAsState()
+    val pendingQuestion by viewModel.pendingQuestion.collectAsState()
+
+    var inputText by remember { mutableStateOf("") }
+    val listState = rememberLazyListState()
+
+    // 현재 데스크 메시지만 필터링
+    val filteredMessages = remember(claudeMessages, selectedDesk) {
+        claudeMessages.filter { it.deskId == selectedDesk?.deskId }
+    }
+
+    // 메시지 자동 스크롤
+    LaunchedEffect(filteredMessages.size, currentTextBuffer) {
+        if (filteredMessages.isNotEmpty()) {
+            listState.animateScrollToItem(filteredMessages.size - 1)
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        // 현재 데스크 헤더
+        if (selectedDesk != null) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                tonalElevation = 2.dp
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(selectedDesk?.pcIcon ?: "💻", fontSize = 20.sp)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "${selectedDesk?.pcName}/${selectedDesk?.deskName}",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(getStatusIcon(selectedDesk?.status ?: ""), fontSize = 10.sp)
+                            Text(
+                                selectedDesk?.status?.uppercase() ?: "",
+                                fontSize = 10.sp,
+                                color = getStatusColor(selectedDesk?.status ?: "")
+                            )
+                        }
+                    }
+                    Text(
+                        "← Swipe for desks",
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    )
+                }
+            }
+        }
+
+        // 메시지 목록
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+        ) {
+            if (selectedDesk == null) {
+                // 데스크 미선택
+                Column(
+                    modifier = Modifier.align(Alignment.Center),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text("💫", fontSize = 48.sp)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        "Select a desk to start",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        "← Swipe left to select",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    )
+                }
+            } else if (filteredMessages.isEmpty() && currentTextBuffer.isEmpty()) {
+                // 메시지 없음
+                Column(
+                    modifier = Modifier.align(Alignment.Center),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(selectedDesk?.pcIcon ?: "💻", fontSize = 48.sp)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        "Start a conversation",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(vertical = 8.dp)
+                ) {
+                    items(filteredMessages) { message ->
+                        ClaudeMessageBubble(message = message, pcIcon = selectedDesk?.pcIcon ?: "💻")
+                    }
+
+                    // 스트리밍 중인 텍스트
+                    if (currentTextBuffer.isNotEmpty()) {
+                        item {
+                            ClaudeMessageBubble(
+                                message = ClaudeMessage(
+                                    id = "streaming",
+                                    deskId = selectedDesk?.deskId ?: "",
+                                    isUser = false,
+                                    content = currentTextBuffer,
+                                    timestamp = System.currentTimeMillis()
+                                ),
+                                pcIcon = selectedDesk?.pcIcon ?: "💻",
+                                isStreaming = true
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 권한 요청 다이얼로그
+        pendingPermission?.let { perm ->
+            PermissionDialog(
+                permission = perm,
+                onAllow = { viewModel.respondPermission("allow") },
+                onDeny = { viewModel.respondPermission("deny") },
+                onAllowAll = { viewModel.respondPermission("allowAll") }
+            )
+        }
+
+        // 질문 다이얼로그
+        pendingQuestion?.let { question ->
+            QuestionDialog(
+                question = question,
+                onAnswer = { viewModel.respondQuestion(it) }
+            )
+        }
+
+        // 컨트롤 바
+        if (selectedDesk != null) {
+            ClaudeControlBar(
+                desk = selectedDesk!!,
+                onStop = { viewModel.stopClaude() },
+                onNewSession = { viewModel.newSession() }
+            )
+        }
+
+        // 입력창
+        ClaudeInputBar(
+            value = inputText,
+            onValueChange = { inputText = it },
+            onSend = {
+                if (inputText.isNotBlank() && selectedDesk != null) {
+                    viewModel.sendToSelectedDesk(inputText)
+                    inputText = ""
+                }
+            },
+            enabled = selectedDesk != null && selectedDesk?.status != "offline"
+        )
+    }
+}
+
+// ============ Legacy Claude Screen (참고용) ============
 
 @Composable
 fun ClaudeScreen(viewModel: MainViewModel) {

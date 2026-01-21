@@ -3,7 +3,7 @@
 ## 목표
 데스크톱 버전의 UI/기능을 모바일로 마이그레이션하되, 데스크 섹션과 채팅 섹션을 좌우 스와이프로 전환
 
-## 완료된 작업
+## 완료된 작업 ✅
 
 ### 1. 프로젝트 구조 파악
 - 데스크톱: `estelle-desktop/src/App.jsx` - 좌측 사이드바(Pylon/Desk 목록) + 우측 채팅
@@ -20,73 +20,98 @@ implementation("androidx.compose.foundation:foundation")
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 ```
 
----
-
-## 남은 작업
-
-### 4. EstelleApp 함수 수정
+### 4. EstelleApp 함수 수정 ✅
 - `HorizontalPager` 적용 (2페이지: 데스크 목록 / 채팅)
 - `bottomBar` (NavigationBar) 제거
-- 페이지 인디케이터 추가 (선택)
+- 페이지 인디케이터 추가 (상단 점 2개)
+- `rememberCoroutineScope`로 페이지 전환 애니메이션
 
-```kotlin
-// 예시 구조
-@Composable
-fun EstelleApp(viewModel: MainViewModel = viewModel()) {
-    val pagerState = rememberPagerState(pageCount = { 2 })
-
-    Scaffold(
-        topBar = { /* 기존 TopAppBar 유지 */ }
-        // bottomBar 제거
-    ) { padding ->
-        HorizontalPager(
-            state = pagerState,
-            modifier = Modifier.padding(padding).fillMaxSize()
-        ) { page ->
-            when (page) {
-                0 -> DeskListPage(viewModel, pagerState)
-                1 -> ChatPage(viewModel)
-            }
-        }
-    }
-}
-```
-
-### 5. DeskListPage 컴포저블 생성
-데스크톱 사이드바와 유사한 UI:
+### 5. DeskListPage 컴포저블 생성 ✅
 - Pylon 그룹별 데스크 목록 (LazyColumn)
-- 각 Pylon 헤더 (아이콘 + 이름 + 새 데스크 버튼)
-- 데스크 항목 (들여쓰기, 상태 표시)
+- 각 Pylon 헤더 (아이콘 + 이름)
+- 데스크 항목 (상태 표시, 선택 표시)
 - 데스크 선택 시 자동으로 ChatPage로 스와이프
 
-### 6. ChatPage 컴포저블 생성
-기존 `ClaudeScreen`에서 `DeskSelector` 제거:
-- 상단에 현재 선택된 데스크 표시 (헤더)
+### 6. ChatPage 컴포저블 생성 ✅
+- 상단에 현재 선택된 데스크 헤더 (아이콘 + 이름 + 상태)
 - 메시지 목록
 - 컨트롤 바 (Stop/New Session)
 - 입력창
+- 스와이프 힌트 텍스트
 
-### 7. (선택) 페이지 인디케이터
-- 하단 또는 상단에 현재 페이지 표시 (점 2개)
+### 7. 페이지 인디케이터 ✅
+- 상단에 현재 페이지 표시 (점 2개)
 
 ---
 
-## 참고: 데스크톱 사이드바 구조 (App.jsx)
+## 변경 사항 요약
+
+### Before (기존)
+- `bottomBar`로 Claude/Chat 탭 전환
+- 탭마다 별도 화면
+
+### After (신규)
+- 좌우 스와이프로 페이지 전환
+- 페이지 0: DeskListPage (Pylon별 데스크 목록)
+- 페이지 1: ChatPage (채팅 화면)
+- 상단 점 인디케이터로 현재 페이지 표시
+- 데스크 선택 시 자동으로 ChatPage로 이동
+
+---
+
+## UI 구조
 
 ```
-┌─────────────────┐
-│ Pylons          │  ← 섹션 헤더
-├─────────────────┤
-│ 💻 Stella    [+]│  ← Pylon 그룹 (새 데스크 버튼)
-│   └ main     ●  │  ← 데스크 (상태 점)
-│   └ test        │
-├─────────────────┤
-│ 🌙 Selene    [+]│
-│   └ work        │
-└─────────────────┘
+┌─────────────────────────────────┐
+│  Estelle v1.x.x          [ON]  │  ← TopAppBar
+├─────────────────────────────────┤
+│            ● ○                  │  ← 페이지 인디케이터
+├─────────────────────────────────┤
+│                                 │
+│  ← 스와이프 →                    │
+│                                 │
+│  [DeskListPage] | [ChatPage]   │
+│                                 │
+└─────────────────────────────────┘
+```
+
+### DeskListPage (페이지 0)
+```
+┌─────────────────────────────────┐
+│  Desks                          │
+├─────────────────────────────────┤
+│  ⭐ Stella                      │
+│  ┌─────────────────────────┐   │
+│  │ main          💤 idle  ✓│   │
+│  └─────────────────────────┘   │
+│  ┌─────────────────────────┐   │
+│  │ test          💬 working │   │
+│  └─────────────────────────┘   │
+├─────────────────────────────────┤
+│  🌙 Selene                      │
+│  ┌─────────────────────────┐   │
+│  │ work          🔌 offline │   │
+│  └─────────────────────────┘   │
+└─────────────────────────────────┘
+```
+
+### ChatPage (페이지 1)
+```
+┌─────────────────────────────────┐
+│ ⭐ Stella/main  💤 IDLE  ← ... │  ← 데스크 헤더
+├─────────────────────────────────┤
+│                                 │
+│  [메시지 목록]                   │
+│                                 │
+├─────────────────────────────────┤
+│  💤 IDLE        [Stop] [New]   │  ← 컨트롤 바
+├─────────────────────────────────┤
+│  [Message to Claude...]  [▶]   │  ← 입력창
+└─────────────────────────────────┘
 ```
 
 ---
@@ -98,4 +123,13 @@ fun EstelleApp(viewModel: MainViewModel = viewModel()) {
 
 ---
 
+## 남은 작업
+
+- [ ] 실제 빌드 및 테스트
+- [ ] 새 데스크 생성 버튼 추가 (DeskListPage)
+- [ ] LegacyChatScreen 제거 (더 이상 사용 안 함)
+
+---
+
 작성일: 2026-01-22
+업데이트: 2026-01-22 (스와이프 UI 구현 완료)
