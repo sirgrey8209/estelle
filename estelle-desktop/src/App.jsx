@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 
-const PYLON_URL = 'ws://localhost:9000';
+const RELAY_URL = 'wss://estelle-relay.fly.dev';
 const LOCAL_VERSION = '1.0.0';
+// Desktop 전용 동적 deviceId (100 이상)
+const DESKTOP_DEVICE_ID = 100 + Math.floor(Math.random() * 100);
 
 function App() {
   const [connected, setConnected] = useState(false);
-  const [relayConnected, setRelayConnected] = useState(false);
   const [logs, setLogs] = useState([]);
 
   // 디바이스/데스크 상태
@@ -33,7 +34,8 @@ function App() {
   const [newDeskName, setNewDeskName] = useState('');
   const [newDeskDir, setNewDeskDir] = useState('C:\\Workspace');
 
-  const wsRef = useRef(null);
+  const wsRef = useRef(null);        // Relay 연결
+  const isAuthenticated = useRef(false);
   const isCleaningUp = useRef(false);
   const claudeEndRef = useRef(null);
 
@@ -213,21 +215,11 @@ function App() {
     }
   }, [addLog]);
 
-  // WebSocket 메시지 핸들러 (Pylon에서 오는 메시지)
+  // WebSocket 메시지 핸들러 (Relay 전용)
   const handleMessage = useCallback((data) => {
     const { type, payload } = data;
 
     switch (type) {
-      case 'connected':
-        addLog(`Connected to Pylon: ${data.message || ''}`, 'success');
-        setRelayConnected(data.relayStatus || false);
-        break;
-
-      case 'relay_status':
-        setRelayConnected(data.connected || false);
-        addLog(`Relay: ${data.connected ? 'connected' : 'disconnected'}`, data.connected ? 'success' : 'error');
-        break;
-
       case 'desk_list_result':
         // Pylon에서 온 데스크 목록
         if (payload?.deviceId !== undefined) {
@@ -328,40 +320,62 @@ function App() {
     }
   }, [addLog, handleClaudeEvent, selectedDesk]);
 
-  // Pylon 연결
-  const connectToPylon = useCallback(() => {
+  // Relay 연결 (모든 Pylon 통신용)
+  const connectToRelay = useCallback(() => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) return;
 
-    addLog('Connecting to Pylon...', 'info');
-    const ws = new WebSocket(PYLON_URL);
+    addLog('Connecting to Relay...', 'info');
+    const ws = new WebSocket(RELAY_URL);
 
     ws.onopen = () => {
-      setConnected(true);
-      addLog('Connected to Pylon', 'success');
+      addLog('Connected to Relay, authenticating...', 'info');
+      // 인증 요청 (Desktop 전용 동적 ID)
+      ws.send(JSON.stringify({
+        type: 'auth',
+        payload: { deviceId: DESKTOP_DEVICE_ID, deviceType: 'desktop' }
+      }));
     };
 
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
+
+        // 인증 결과 처리
+        if (data.type === 'auth_result') {
+          if (data.payload?.success) {
+            isAuthenticated.current = true;
+            setConnected(true);
+            addLog(`Relay authenticated as ${data.payload.device?.name}`, 'success');
+            // 데스크 목록 요청 (브로드캐스트)
+            ws.send(JSON.stringify({
+              type: 'desk_list',
+              broadcast: 'pylons'
+            }));
+          } else {
+            addLog(`Relay auth failed: ${data.payload?.error}`, 'error');
+          }
+          return;
+        }
+
         handleMessage(data);
       } catch (err) {
-        addLog(`Parse error: ${event.data}`, 'error');
+        addLog(`Relay parse error: ${event.data}`, 'error');
       }
     };
 
     ws.onclose = () => {
+      isAuthenticated.current = false;
       setConnected(false);
-      setRelayConnected(false);
       setPylonDesks(new Map());
-      addLog('Disconnected from Pylon', 'error');
+      addLog('Disconnected from Relay', 'error');
 
       if (!isCleaningUp.current) {
-        setTimeout(connectToPylon, 3000);
+        setTimeout(connectToRelay, 5000);
       }
     };
 
     ws.onerror = () => {
-      addLog('Pylon connection error', 'error');
+      addLog('Relay connection error', 'error');
     };
 
     wsRef.current = ws;
@@ -370,9 +384,12 @@ function App() {
   // 초기화
   useEffect(() => {
     isCleaningUp.current = false;
-    connectToPylon();
-    return () => { isCleaningUp.current = true; };
-  }, [connectToPylon]);
+    connectToRelay();
+    return () => {
+      isCleaningUp.current = true;
+      wsRef.current?.close();
+    };
+  }, [connectToRelay]);
 
   // Claude 스크롤
   useEffect(() => {
@@ -398,10 +415,12 @@ function App() {
     }
   }, [selectedDesk, claudeMessages]);
 
-  // 메시지 전송 함수들 (Pylon 경유)
+  // 메시지 전송 (Relay 경유)
   const send = (message) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
+    if (wsRef.current?.readyState === WebSocket.OPEN && isAuthenticated.current) {
       wsRef.current.send(JSON.stringify(message));
+    } else {
+      addLog('Cannot send: not connected to Relay', 'error');
     }
   };
 
@@ -654,9 +673,7 @@ function App() {
         <h1>Estelle Desktop <span className="version">v{LOCAL_VERSION}</span></h1>
         <div className="status-bar">
           {!connected ? (
-            <span className="status disconnected">Pylon Off</span>
-          ) : !relayConnected ? (
-            <span className="status relay-off">Relay Off</span>
+            <span className="status disconnected">Disconnected</span>
           ) : (
             <div className="status-connected">
               <span className="status connected">Connected</span>

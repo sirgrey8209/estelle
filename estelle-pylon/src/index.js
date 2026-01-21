@@ -251,7 +251,12 @@ class Pylon {
     // ===== 데스크 관련 =====
 
     if (type === 'desk_list') {
-      this.broadcastDeskList();
+      // from 정보가 있으면 요청자에게 직접 응답, 없으면 브로드캐스트
+      if (from?.deviceId) {
+        this.sendDeskListTo(from);
+      } else {
+        this.broadcastDeskList();
+      }
       return;
     }
 
@@ -424,6 +429,29 @@ class Pylon {
         packetLogger.logSend('desktop', eventMsg);
       }
     }
+  }
+
+  // 특정 클라이언트에게 데스크 목록 전송
+  sendDeskListTo(target) {
+    const desks = deskStore.getAllDesks();
+
+    const desksWithSessionInfo = desks.map(desk => ({
+      ...desk,
+      hasActiveSession: this.claudeManager.hasActiveSession(desk.deskId),
+      canResume: !!desk.claudeSessionId
+    }));
+
+    const payload = {
+      deviceId: this.deviceId,
+      deviceInfo: this.deviceInfo,
+      desks: desksWithSessionInfo
+    };
+
+    this.send({
+      type: 'desk_list_result',
+      payload,
+      to: { deviceId: target.deviceId, deviceType: target.deviceType }
+    });
   }
 
   broadcastDeskList() {

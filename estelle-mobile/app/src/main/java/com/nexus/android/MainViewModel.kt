@@ -191,6 +191,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             handleRelayMessage(data)
         }
         checkForUpdate()
+
+        // 인증 성공 시 데스크 목록 요청
+        viewModelScope.launch {
+            relayClient.isAuthenticated.collect { authenticated ->
+                if (authenticated) {
+                    relayClient.requestDeskList()
+                }
+            }
+        }
     }
 
     private fun updateAllDesks() {

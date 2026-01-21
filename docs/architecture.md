@@ -15,35 +15,31 @@ Estelle은 여러 PC와 모바일 기기에서 Claude Code를 원격으로 제�
                          │   Port 8080     │
                          └────────┬────────┘
                                   │ WSS (443)
-              ┌───────────────────┼───────────────────┐
-              │                   │                   │
-        ┌─────┴─────┐       ┌─────┴─────┐       ┌─────┴─────┐
-        │  Pylon    │       │  Pylon    │       │  Mobile   │
-        │  (집 PC)  │       │ (회사 PC) │       │  (Lucy)   │
-        │ deviceId:1│       │ deviceId:2│       │ deviceId: │
-        └─────┬─────┘       └─────┬─────┘       │ 100+      │
-              │                   │             └───────────┘
-        localhost:9000      localhost:9000
-              │                   │
-        ┌─────┴─────┐       ┌─────┴─────┐
-        │  Desktop  │       │  Desktop  │
-        │  (집 UI)  │       │ (회사 UI) │
-        └───────────┘       └───────────┘
+         ┌────────────────────────┼────────────────────────┐
+         │                        │                        │
+   ┌─────┴─────┐            ┌─────┴─────┐            ┌─────┴─────┐
+   │  Pylon    │            │  Pylon    │            │  Desktop  │
+   │  (집 PC)  │            │ (회사 PC) │            │  Mobile   │
+   │ deviceId:1│            │ deviceId:2│            │ deviceId: │
+   └───────────┘            └───────────┘            │ 100+      │
+                                                     └───────────┘
 ```
 
 ### 핵심 원칙
 
-1. **Desktop은 Relay에 직접 연결하지 않음**
-   - Desktop → Pylon (localhost:9000) → Relay
-   - Desktop은 반드시 로컬 Pylon을 통해서만 통신
-
-2. **Mobile은 Relay에 직접 연결**
+1. **모든 클라이언트는 Relay에 연결**
+   - Desktop → Relay → Pylon
    - Mobile → Relay → Pylon
-   - 외부 네트워크에서 접근 가능
+   - Pylon → Relay (다른 클라이언트/Pylon과 통신)
 
-3. **Relay는 순수 라우터**
+2. **Relay는 순수 라우터**
    - 메시지 내용을 해석하지 않음
-   - `to`, `broadcast` 필드만 보고 라우팅
+   - \`to\`, \`broadcast\` 필드만 보고 라우팅
+
+3. **로컬 통신 모드 (향후)**
+   - Relay 장애 시 fallback으로 검토
+   - Desktop → Pylon (localhost:9000) 직접 연결
+   - 현재는 미구현
 
 ---
 
@@ -54,15 +50,15 @@ Estelle은 여러 PC와 모바일 기기에서 Claude Code를 원격으로 제�
 **역할**: 중앙 라우팅 서버
 
 **처리하는 메시지**:
-- `auth` - 인증
-- `get_devices` - 연결된 디바이스 목록
-- `ping` - 연결 확인
+- \`auth\` - 인증
+- \`get_devices\` - 연결된 디바이스 목록
+- \`ping\` - 연결 확인
 
 **라우팅 규칙**:
-- `to: { deviceId, deviceType }` → 해당 디바이스로 직접 전송
-- `broadcast: 'all'` → 모든 인증된 클라이언트
-- `broadcast: 'pylons'` → 모든 Pylon
-- `broadcast: 'clients'` → Pylon 제외 모든 클라이언트
+- \`to: { deviceId, deviceType }\` → 해당 디바이스로 직접 전송
+- \`broadcast: 'all'\` → 모든 인증된 클라이언트
+- \`broadcast: 'pylons'\` → 모든 Pylon
+- \`broadcast: 'clients'\` → Pylon 제외 모든 클라이언트
 - 기본: Pylon이 보내면 → 클라이언트들로, 클라이언트가 보내면 → Pylon들로
 
 ### 2. Pylon (estelle-pylon)
@@ -71,35 +67,36 @@ Estelle은 여러 PC와 모바일 기기에서 Claude Code를 원격으로 제�
 
 **기능**:
 - Relay 연결 유지
-- Desktop 로컬 연결 (localhost:9000)
 - Claude SDK 실행 및 관리
 - 데스크 관리
 
 **메시지 처리**:
-- Desktop에서 온 메시지에 `to` 필드가 있으면:
-  - `to.deviceId`가 자신이면 → 로컬 처리
-  - 다른 디바이스면 → Relay로 전달
-- `to` 필드 없으면 → 로컬 처리
+- Relay로부터 받은 메시지 중 자신에게 온 것만 처리
+- \`to.deviceId\`가 자신이면 → 로컬 처리
 
 ### 3. Desktop (estelle-desktop)
 
 **역할**: PC용 UI (Electron)
 
 **연결**:
-- Pylon에만 연결 (`ws://localhost:9000`)
-- Relay 직접 연결 없음
+- Relay에 직접 연결 (\`wss://estelle-relay.fly.dev\`)
+- 동적 deviceId 사용 (100+)
 
-**상태 표시**:
-- Pylon 연결 상태
-- Relay 연결 상태 (Pylon 통해 전달받음)
-- Claude 상태
+**기능**:
+- 모든 Pylon의 데스크 목록 표시 (집/회사 등)
+- Claude 메시지 송수신
+- 권한 요청 응답
 
 ### 4. Mobile (estelle-mobile)
 
 **역할**: Android 앱
 
 **연결**:
-- Relay에 직접 연결
+- Relay에 직접 연결 (\`wss://estelle-relay.fly.dev\`)
+- 동적 deviceId 사용 (100+)
+
+**기능**:
+- Desktop과 동일
 
 ---
 
@@ -115,9 +112,9 @@ Estelle은 여러 PC와 모바일 기기에서 Claude Code를 원격으로 제�
 ### 동적 ID (100+)
 
 Desktop, Mobile 등 클라이언트가 접속 시 자동 할당:
-```
+\`\`\`
 deviceId = 100 + random(0-899)
-```
+\`\`\`
 
 ---
 
@@ -125,45 +122,61 @@ deviceId = 100 + random(0-899)
 
 ### 기본 구조
 
-```json
+\`\`\`json
 {
   "type": "메시지_타입",
   "to": { "deviceId": 1, "deviceType": "pylon" },  // 선택
   "broadcast": "clients",  // 선택
   "payload": { ... }
 }
-```
+\`\`\`
 
 ### 주요 메시지 타입
 
 | 타입 | 방향 | 설명 |
 |------|------|------|
-| `auth` | → Relay | 인증 요청 |
-| `auth_result` | ← Relay | 인증 결과 |
-| `desk_list` | → Pylon | 데스크 목록 요청 |
-| `desk_list_result` | ← Pylon | 데스크 목록 |
-| `claude_send` | → Pylon | Claude 메시지 전송 |
-| `claude_event` | ← Pylon | Claude 이벤트 (텍스트, 툴 등) |
-| `claude_permission` | → Pylon | 권한 응답 |
-| `claude_control` | → Pylon | 제어 (stop, new_session) |
-| `relay_status` | Pylon → Desktop | Relay 연결 상태 |
+| \`auth\` | → Relay | 인증 요청 |
+| \`auth_result\` | ← Relay | 인증 결과 |
+| \`desk_list\` | → Pylon | 데스크 목록 요청 |
+| \`desk_list_result\` | ← Pylon | 데스크 목록 |
+| \`claude_send\` | → Pylon | Claude 메시지 전송 |
+| \`claude_event\` | ← Pylon | Claude 이벤트 (텍스트, 툴 등) |
+| \`claude_permission\` | → Pylon | 권한 응답 |
+| \`claude_control\` | → Pylon | 제어 (stop, new_session) |
+
+### 데스크 목록 조회 플로우
+
+```
+1. Desktop/Mobile 인증 성공 시:
+   → { type: 'desk_list', broadcast: 'pylons' }
+
+2. Relay가 모든 Pylon에 브로드캐스트:
+   → 각 Pylon에게 { type: 'desk_list', from: { deviceId: 100, ... } }
+
+3. 각 Pylon이 응답:
+   → { type: 'desk_list_result', to: { deviceId: 100, deviceType: 'desktop' }, payload: { deviceId, deviceInfo, desks } }
+   또는 broadcast: 'clients'로 모든 클라이언트에 브로드캐스트
+
+4. Desktop/Mobile이 desk_list_result 수신:
+   → deviceId별로 Map에 저장하여 여러 Pylon 데스크 표시
+```
 
 ---
 
-## 로깅 & 디버깅 시스템 (구현 예정)
+## 로깅 & 디버깅 시스템
 
 ### 로깅
 
 모든 패킷을 파일로 로깅:
 
-```
+\`\`\`
 logs/
   2024-01-21_14-30-00_recv_auth_result.json
   2024-01-21_14-30-01_send_claude_send.json
-```
+\`\`\`
 
 로그 파일 형식:
-```json
+\`\`\`json
 {
   "timestamp": "2024-01-21T14:30:00.123Z",
   "direction": "recv",  // recv | send
@@ -172,17 +185,17 @@ logs/
   "type": "claude_send",
   "data": { ... }
 }
-```
+\`\`\`
 
 ### 입력 시뮬레이션 (inbox)
 
 실행 중인 앱에서 inbox 폴더를 감시:
-```
+\`\`\`
 inbox/
   test_message.json  → 넣으면 즉시 처리됨
 processed/
   test_message.json  → 처리 후 이동
-```
+\`\`\`
 
 **재현 플로우**:
 1. 버그 발생
@@ -194,7 +207,7 @@ processed/
 
 ## 파일 구조
 
-```
+\`\`\`
 estelle/
 ├── estelle-relay/       # Relay 서버 (Fly.io)
 │   └── src/index.js
@@ -223,8 +236,8 @@ estelle/
 │   └── *.md
 └── log/                 # 완료된 작업 로그
     └── YYYY-MM-DD-*.md
-```
+\`\`\`
 
 ---
 
-*Last updated: 2026-01-21*
+*Last updated: 2026-01-22*

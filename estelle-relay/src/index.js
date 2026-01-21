@@ -6,8 +6,13 @@
 
 require('dotenv').config();
 const WebSocket = require('ws');
+const { execSync } = require('child_process');
+const https = require('https');
+const path = require('path');
 
 const PORT = process.env.PORT || 8080;
+const REPO_DIR = path.resolve(__dirname, '..', '..');
+const DEPLOY_JSON_URL = 'https://github.com/sirgrey8209/estelle/releases/download/deploy/deploy.json';
 
 // ============ 디바이스 정의 ============
 const DEVICES = {
@@ -34,7 +39,14 @@ function getClientIp(req) {
 }
 
 function getDeviceInfo(deviceId) {
-  return DEVICES[deviceId] || { name: `Device ${deviceId}`, icon: '💻', role: 'unknown' };
+  if (DEVICES[deviceId]) {
+    return DEVICES[deviceId];
+  }
+  // 동적 디바이스 (100 이상)
+  if (deviceId >= DYNAMIC_DEVICE_ID_START) {
+    return { name: `Client ${deviceId}`, icon: '📱', role: 'client' };
+  }
+  return { name: `Device ${deviceId}`, icon: '💻', role: 'unknown' };
 }
 
 // ============ 인증 ============
@@ -102,6 +114,94 @@ function broadcastExceptType(excludeDeviceType, message, excludeClientId = null)
   clients.forEach((client, clientId) => {
     if (clientId !== excludeClientId && client.deviceType !== excludeDeviceType && client.authenticated && client.ws.readyState === WebSocket.OPEN) {
       client.ws.send(JSON.stringify(message));
+    }
+  });
+}
+
+// ============ 자동 업데이트 ============
+
+function fetchDeployJson() {
+  return new Promise((resolve) => {
+    const url = `${DEPLOY_JSON_URL}?t=${Date.now()}`;
+    https.get(url, { headers: { 'User-Agent': 'Estelle-Relay' } }, (res) => {
+      if (res.statusCode === 302 || res.statusCode === 301) {
+        https.get(res.headers.location, (res2) => {
+          let data = '';
+          res2.on('data', chunk => data += chunk);
+          res2.on('end', () => { try { resolve(JSON.parse(data)); } catch { resolve(null); } });
+        }).on('error', () => resolve(null));
+        return;
+      }
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => { try { resolve(JSON.parse(data)); } catch { resolve(null); } });
+    }).on('error', () => resolve(null));
+  });
+}
+
+function getLocalCommit() {
+  try {
+    return execSync('git rev-parse --short HEAD', { cwd: REPO_DIR, encoding: 'utf-8' }).trim();
+  } catch {
+    return null;
+  }
+}
+
+async function checkAndUpdate() {
+  log('Checking for updates...');
+  try {
+    const localCommit = getLocalCommit();
+    if (!localCommit) {
+      log('Could not get local commit');
+      return { success: false, message: 'Could not get local commit' };
+    }
+    log(`Local commit: ${localCommit}`);
+
+    const deployInfo = await fetchDeployJson();
+    if (!deployInfo) {
+      log('No deploy info found');
+      return { success: false, message: 'No deploy info found' };
+    }
+    log(`Deploy commit: ${deployInfo.commit}`);
+
+    if (localCommit === deployInfo.commit) {
+      log('Already up to date');
+      return { success: true, message: 'Already up to date', updated: false };
+    }
+
+    log('Update available, pulling...');
+    execSync('git fetch origin', { cwd: REPO_DIR, encoding: 'utf-8' });
+    execSync(`git checkout ${deployInfo.commit}`, { cwd: REPO_DIR, encoding: 'utf-8' });
+
+    const relayDir = path.join(REPO_DIR, 'estelle-relay');
+    log('Running npm install...');
+    execSync('npm install', { cwd: relayDir, encoding: 'utf-8' });
+
+    log(`Updated to ${deployInfo.commit}`);
+    return { success: true, message: `Updated to ${deployInfo.commit}`, updated: true };
+  } catch (err) {
+    log(`Update failed: ${err.message}`);
+    return { success: false, message: err.message };
+  }
+}
+
+function handleRelayUpdate(clientId, data) {
+  const client = clients.get(clientId);
+  // Pylon만 업데이트 요청 가능
+  if (!client || client.deviceType !== 'pylon') {
+    sendTo(clientId, { type: 'relay_update_result', payload: { success: false, error: 'Only pylons can trigger relay update' } });
+    return;
+  }
+
+  log(`Relay update requested by: ${data.from?.name || client.deviceId}`);
+
+  checkAndUpdate().then(result => {
+    sendTo(clientId, { type: 'relay_update_result', payload: result });
+
+    if (result.updated) {
+      log('Restarting Relay...');
+      broadcast({ type: 'relay_restarting', payload: { message: 'Relay is restarting for update' } });
+      setTimeout(() => process.exit(0), 1000);
     }
   });
 }
@@ -195,6 +295,19 @@ function handleMessage(clientId, data) {
 
   if (type === 'ping') {
     sendTo(clientId, { type: 'pong', payload: {} });
+    return;
+  }
+
+  // Relay 업데이트 요청 (Pylon만 가능)
+  if (type === 'relay_update') {
+    handleRelayUpdate(clientId, data);
+    return;
+  }
+
+  // Relay 버전 확인
+  if (type === 'relay_version') {
+    const commit = getLocalCommit();
+    sendTo(clientId, { type: 'relay_version_result', payload: { commit } });
     return;
   }
 
@@ -308,9 +421,16 @@ wss.on('connection', (ws, req) => {
   });
 });
 
-wss.on('listening', () => {
+wss.on('listening', async () => {
   log(`[Estelle Relay v1] Started on port ${PORT}`);
   log(`Registered devices: ${Object.entries(DEVICES).map(([id, d]) => `${d.name}(${id})`).join(', ')}`);
+
+  // 시작 시 자동 업데이트 체크
+  const result = await checkAndUpdate();
+  if (result.updated) {
+    log('Restarting after update...');
+    setTimeout(() => process.exit(0), 1000);
+  }
 });
 
 wss.on('error', (err) => {
