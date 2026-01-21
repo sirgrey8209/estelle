@@ -3,16 +3,15 @@ package com.nexus.android
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -28,36 +27,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.nexus.android.ui.theme.EstelleMobileTheme
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
-// 캐릭터 설정
-data class Character(val name: String, val icon: String, val role: String)
-
-val CHARACTERS = mapOf(
-    "estelle" to Character("Estelle", "💫", "Relay"),
-    "stella" to Character("Stella", "⭐", "회사 PC"),
-    "selene" to Character("Selene", "🌙", "집 PC"),
-    "lucy" to Character("Lucy", "📱", "Mobile"),
-)
-
-fun getCharacter(deviceId: String?, deviceType: String?): Character {
-    val id = deviceId?.lowercase()
-    CHARACTERS[id]?.let { return it }
-    return when (deviceType) {
-        "mobile" -> Character(deviceId ?: "Unknown", "📱", "Mobile")
-        "pylon" -> Character(deviceId ?: "Unknown", "💻", "Pylon")
-        "desktop" -> Character(deviceId ?: "Unknown", "🖥️", "Desktop")
-        else -> Character(deviceId ?: "Unknown", "❓", deviceType ?: "")
-    }
-}
-
-// 상태 아이콘
+// 상태 아이콘/색상
 fun getStatusIcon(status: String): String = when (status) {
-    "idle" -> "💤"
-    "working" -> "💬"
+    "idle" -> "\uD83D\uDCA4"
+    "working" -> "\uD83D\uDCAC"
     "permission" -> "⏳"
-    "offline" -> "🔌"
+    "offline" -> "\uD83D\uDD0C"
     else -> "❓"
 }
 
@@ -85,7 +62,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun EstelleApp(viewModel: MainViewModel = viewModel()) {
     val pagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
@@ -132,7 +109,6 @@ fun EstelleApp(viewModel: MainViewModel = viewModel()) {
                     }
                 },
                 actions = {
-                    // 연결 상태
                     Box(
                         modifier = Modifier
                             .padding(end = 16.dp)
@@ -152,7 +128,6 @@ fun EstelleApp(viewModel: MainViewModel = viewModel()) {
                 }
             )
         }
-        // bottomBar 제거 - 스와이프로 전환
     ) { padding ->
         Column(modifier = Modifier.padding(padding)) {
             // 페이지 인디케이터
@@ -199,19 +174,19 @@ fun EstelleApp(viewModel: MainViewModel = viewModel()) {
     }
 }
 
-// ============ DeskListPage (스와이프 페이지 0) ============
+// ============ DeskListPage (페이지 0) ============
 
 @Composable
 fun DeskListPage(
     viewModel: MainViewModel,
     onDeskSelected: () -> Unit
 ) {
-    val desks by viewModel.desks.collectAsState()
+    val desks by viewModel.allDesks.collectAsState()
     val selectedDesk by viewModel.selectedDesk.collectAsState()
 
     // Pylon별로 그룹화
     val pylonGroups = remember(desks) {
-        desks.groupBy { it.pcName to it.pcIcon }
+        desks.groupBy { it.deviceName to it.deviceIcon }
     }
 
     Column(
@@ -219,7 +194,6 @@ fun DeskListPage(
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        // 헤더
         Text(
             "Desks",
             fontSize = 24.sp,
@@ -228,20 +202,19 @@ fun DeskListPage(
         )
 
         if (pylonGroups.isEmpty()) {
-            // 연결된 Pylon 없음
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("💫", fontSize = 48.sp)
+                    Text("\uD83D\uDCAB", fontSize = 48.sp)
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
                         "No Pylons connected",
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        "← Swipe to chat",
+                        "Swipe right for chat \u2192",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                     )
@@ -252,7 +225,7 @@ fun DeskListPage(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 pylonGroups.forEach { (pylonInfo, pylonDesks) ->
-                    val (pcName, pcIcon) = pylonInfo
+                    val (deviceName, deviceIcon) = pylonInfo
 
                     // Pylon 헤더
                     item {
@@ -262,10 +235,10 @@ fun DeskListPage(
                                 .padding(vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(pcIcon, fontSize = 24.sp)
+                            Text(deviceIcon, fontSize = 24.sp)
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                pcName,
+                                deviceName,
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
@@ -313,8 +286,6 @@ fun DeskListPage(
                                         )
                                     }
                                 }
-
-                                // 선택 표시
                                 if (isSelected) {
                                     Icon(
                                         Icons.Default.Check,
@@ -331,30 +302,26 @@ fun DeskListPage(
     }
 }
 
-// ============ ChatPage (스와이프 페이지 1) ============
+// ============ ChatPage (페이지 1) ============
 
 @Composable
 fun ChatPage(viewModel: MainViewModel) {
     val selectedDesk by viewModel.selectedDesk.collectAsState()
     val claudeMessages by viewModel.claudeMessages.collectAsState()
     val currentTextBuffer by viewModel.currentTextBuffer.collectAsState()
-    val pendingPermission by viewModel.pendingPermission.collectAsState()
-    val pendingQuestion by viewModel.pendingQuestion.collectAsState()
+    val pendingRequests by viewModel.pendingRequests.collectAsState()
 
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
-    // 현재 데스크 메시지만 필터링
-    val filteredMessages = remember(claudeMessages, selectedDesk) {
-        claudeMessages.filter { it.deskId == selectedDesk?.deskId }
-    }
-
     // 메시지 자동 스크롤
-    LaunchedEffect(filteredMessages.size, currentTextBuffer) {
-        if (filteredMessages.isNotEmpty()) {
-            listState.animateScrollToItem(filteredMessages.size - 1)
+    LaunchedEffect(claudeMessages.size, currentTextBuffer) {
+        if (claudeMessages.isNotEmpty()) {
+            listState.animateScrollToItem(claudeMessages.size - 1)
         }
     }
+
+    val currentRequest = pendingRequests.firstOrNull()
 
     Column(modifier = Modifier.fillMaxSize()) {
         // 현재 데스크 헤더
@@ -369,11 +336,11 @@ fun ChatPage(viewModel: MainViewModel) {
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(selectedDesk?.pcIcon ?: "💻", fontSize = 20.sp)
+                    Text(selectedDesk?.deviceIcon ?: "\uD83D\uDCBB", fontSize = 20.sp)
                     Spacer(modifier = Modifier.width(8.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            "${selectedDesk?.pcName}/${selectedDesk?.deskName}",
+                            selectedDesk?.fullName ?: "",
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp
                         )
@@ -383,14 +350,14 @@ fun ChatPage(viewModel: MainViewModel) {
                         ) {
                             Text(getStatusIcon(selectedDesk?.status ?: ""), fontSize = 10.sp)
                             Text(
-                                selectedDesk?.status?.uppercase() ?: "",
+                                (selectedDesk?.status ?: "").uppercase(),
                                 fontSize = 10.sp,
                                 color = getStatusColor(selectedDesk?.status ?: "")
                             )
                         }
                     }
                     Text(
-                        "← Swipe for desks",
+                        "\u2190 Swipe for desks",
                         fontSize = 10.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                     )
@@ -405,30 +372,28 @@ fun ChatPage(viewModel: MainViewModel) {
                 .fillMaxWidth()
         ) {
             if (selectedDesk == null) {
-                // 데스크 미선택
                 Column(
                     modifier = Modifier.align(Alignment.Center),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text("💫", fontSize = 48.sp)
+                    Text("\uD83D\uDCAB", fontSize = 48.sp)
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
                         "Select a desk to start",
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        "← Swipe left to select",
+                        "\u2190 Swipe left to select",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                     )
                 }
-            } else if (filteredMessages.isEmpty() && currentTextBuffer.isEmpty()) {
-                // 메시지 없음
+            } else if (claudeMessages.isEmpty() && currentTextBuffer.isEmpty()) {
                 Column(
                     modifier = Modifier.align(Alignment.Center),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text(selectedDesk?.pcIcon ?: "💻", fontSize = 48.sp)
+                    Text(selectedDesk?.deviceIcon ?: "\uD83D\uDCBB", fontSize = 48.sp)
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
                         "Start a conversation",
@@ -444,23 +409,16 @@ fun ChatPage(viewModel: MainViewModel) {
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(vertical = 8.dp)
                 ) {
-                    items(filteredMessages) { message ->
-                        ClaudeMessageBubble(message = message, pcIcon = selectedDesk?.pcIcon ?: "💻")
+                    items(claudeMessages, key = { it.id }) { message ->
+                        MessageBubble(message = message, pcIcon = selectedDesk?.deviceIcon ?: "\uD83D\uDCBB")
                     }
 
                     // 스트리밍 중인 텍스트
                     if (currentTextBuffer.isNotEmpty()) {
                         item {
-                            ClaudeMessageBubble(
-                                message = ClaudeMessage(
-                                    id = "streaming",
-                                    deskId = selectedDesk?.deskId ?: "",
-                                    isUser = false,
-                                    content = currentTextBuffer,
-                                    timestamp = System.currentTimeMillis()
-                                ),
-                                pcIcon = selectedDesk?.pcIcon ?: "💻",
-                                isStreaming = true
+                            StreamingBubble(
+                                content = currentTextBuffer,
+                                pcIcon = selectedDesk?.deviceIcon ?: "\uD83D\uDCBB"
                             )
                         }
                     }
@@ -468,27 +426,18 @@ fun ChatPage(viewModel: MainViewModel) {
             }
         }
 
-        // 권한 요청 다이얼로그
-        pendingPermission?.let { perm ->
-            PermissionDialog(
-                permission = perm,
-                onAllow = { viewModel.respondPermission("allow") },
-                onDeny = { viewModel.respondPermission("deny") },
-                onAllowAll = { viewModel.respondPermission("allowAll") }
-            )
-        }
-
-        // 질문 다이얼로그
-        pendingQuestion?.let { question ->
-            QuestionDialog(
-                question = question,
-                onAnswer = { viewModel.respondQuestion(it) }
+        // 권한/질문 요청
+        currentRequest?.let { request ->
+            RequestBar(
+                request = request,
+                onPermissionResponse = { viewModel.respondPermission(it) },
+                onQuestionResponse = { viewModel.respondQuestion(it) }
             )
         }
 
         // 컨트롤 바
-        if (selectedDesk != null) {
-            ClaudeControlBar(
+        if (selectedDesk != null && currentRequest == null) {
+            ControlBar(
                 desk = selectedDesk!!,
                 onStop = { viewModel.stopClaude() },
                 onNewSession = { viewModel.newSession() }
@@ -496,345 +445,289 @@ fun ChatPage(viewModel: MainViewModel) {
         }
 
         // 입력창
-        ClaudeInputBar(
-            value = inputText,
-            onValueChange = { inputText = it },
-            onSend = {
-                if (inputText.isNotBlank() && selectedDesk != null) {
-                    viewModel.sendToSelectedDesk(inputText)
-                    inputText = ""
-                }
-            },
-            enabled = selectedDesk != null && selectedDesk?.status != "offline"
-        )
+        if (currentRequest == null) {
+            InputBar(
+                value = inputText,
+                onValueChange = { inputText = it },
+                onSend = {
+                    if (inputText.isNotBlank() && selectedDesk != null) {
+                        viewModel.sendToSelectedDesk(inputText)
+                        inputText = ""
+                    }
+                },
+                enabled = selectedDesk != null && selectedDesk?.status != "offline"
+            )
+        }
     }
 }
 
-// ============ Legacy Claude Screen (참고용) ============
+// ============ 메시지 버블 ============
 
 @Composable
-fun ClaudeScreen(viewModel: MainViewModel) {
-    val desks by viewModel.desks.collectAsState()
-    val selectedDesk by viewModel.selectedDesk.collectAsState()
-    val claudeMessages by viewModel.claudeMessages.collectAsState()
-    val currentTextBuffer by viewModel.currentTextBuffer.collectAsState()
-    val pendingPermission by viewModel.pendingPermission.collectAsState()
-    val pendingQuestion by viewModel.pendingQuestion.collectAsState()
-
-    var inputText by remember { mutableStateOf("") }
-    val listState = rememberLazyListState()
-
-    // 현재 데스크 메시지만 필터링
-    val filteredMessages = remember(claudeMessages, selectedDesk) {
-        claudeMessages.filter { it.deskId == selectedDesk?.deskId }
-    }
-
-    // 메시지 자동 스크롤
-    LaunchedEffect(filteredMessages.size, currentTextBuffer) {
-        if (filteredMessages.isNotEmpty()) {
-            listState.animateScrollToItem(filteredMessages.size - 1)
-        }
-    }
-
-    Column(modifier = Modifier.fillMaxSize()) {
-        // 데스크 선택 바
-        DeskSelector(
-            desks = desks,
-            selectedDesk = selectedDesk,
-            onSelectDesk = { viewModel.selectDesk(it) }
-        )
-
-        // 메시지 목록
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-        ) {
-            if (selectedDesk == null) {
-                // 데스크 미선택
-                Column(
-                    modifier = Modifier.align(Alignment.Center),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text("💫", fontSize = 48.sp)
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        "Select a desk to start",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            } else if (filteredMessages.isEmpty() && currentTextBuffer.isEmpty()) {
-                // 메시지 없음
-                Column(
-                    modifier = Modifier.align(Alignment.Center),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(selectedDesk?.pcIcon ?: "💻", fontSize = 48.sp)
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        "${selectedDesk?.pcName}/${selectedDesk?.deskName}",
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        "Start a conversation",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            } else {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(vertical = 8.dp)
-                ) {
-                    items(filteredMessages) { message ->
-                        ClaudeMessageBubble(message = message, pcIcon = selectedDesk?.pcIcon ?: "💻")
-                    }
-
-                    // 스트리밍 중인 텍스트
-                    if (currentTextBuffer.isNotEmpty()) {
-                        item {
-                            ClaudeMessageBubble(
-                                message = ClaudeMessage(
-                                    id = "streaming",
-                                    deskId = selectedDesk?.deskId ?: "",
-                                    isUser = false,
-                                    content = currentTextBuffer,
-                                    timestamp = System.currentTimeMillis()
-                                ),
-                                pcIcon = selectedDesk?.pcIcon ?: "💻",
-                                isStreaming = true
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // 권한 요청 다이얼로그
-        pendingPermission?.let { perm ->
-            PermissionDialog(
-                permission = perm,
-                onAllow = { viewModel.respondPermission("allow") },
-                onDeny = { viewModel.respondPermission("deny") },
-                onAllowAll = { viewModel.respondPermission("allowAll") }
-            )
-        }
-
-        // 질문 다이얼로그
-        pendingQuestion?.let { question ->
-            QuestionDialog(
-                question = question,
-                onAnswer = { viewModel.respondQuestion(it) }
-            )
-        }
-
-        // 컨트롤 바
-        if (selectedDesk != null) {
-            ClaudeControlBar(
-                desk = selectedDesk!!,
-                onStop = { viewModel.stopClaude() },
-                onNewSession = { viewModel.newSession() }
-            )
-        }
-
-        // 입력창
-        ClaudeInputBar(
-            value = inputText,
-            onValueChange = { inputText = it },
-            onSend = {
-                if (inputText.isNotBlank() && selectedDesk != null) {
-                    viewModel.sendToSelectedDesk(inputText)
-                    inputText = ""
-                }
-            },
-            enabled = selectedDesk != null && selectedDesk?.status != "offline"
-        )
-    }
-}
-
-@Composable
-fun DeskSelector(
-    desks: List<DeskInfo>,
-    selectedDesk: DeskInfo?,
-    onSelectDesk: (DeskInfo) -> Unit
-) {
-    LazyRow(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        items(desks) { desk ->
-            val isSelected = desk.deskId == selectedDesk?.deskId
-            Surface(
-                modifier = Modifier.clickable { onSelectDesk(desk) },
-                shape = RoundedCornerShape(16.dp),
-                color = if (isSelected) MaterialTheme.colorScheme.primaryContainer
-                else MaterialTheme.colorScheme.surfaceVariant,
-                tonalElevation = if (isSelected) 4.dp else 0.dp
+fun MessageBubble(message: ClaudeMessage, pcIcon: String) {
+    when (message) {
+        is ClaudeMessage.UserText -> {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                Surface(
+                    shape = RoundedCornerShape(16.dp, 16.dp, 4.dp, 16.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.widthIn(max = 300.dp)
                 ) {
-                    Text(desk.pcIcon, fontSize = 14.sp)
-                    Column {
-                        Text(
-                            "${desk.pcName}/${desk.deskName}",
-                            fontSize = 12.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Text(getStatusIcon(desk.status), fontSize = 10.sp)
+                    Text(
+                        message.content,
+                        modifier = Modifier.padding(12.dp)
+                    )
+                }
+                Text("\uD83D\uDCF1", fontSize = 20.sp, modifier = Modifier.padding(start = 8.dp))
+            }
+        }
+        is ClaudeMessage.AssistantText -> {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Start
+            ) {
+                Text(pcIcon, fontSize = 20.sp, modifier = Modifier.padding(end = 8.dp))
+                Surface(
+                    shape = RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    modifier = Modifier.widthIn(max = 300.dp)
+                ) {
+                    Text(
+                        message.content,
+                        modifier = Modifier.padding(12.dp)
+                    )
+                }
+            }
+        }
+        is ClaudeMessage.ToolCall -> {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Start
+            ) {
+                Text(pcIcon, fontSize = 20.sp, modifier = Modifier.padding(end = 8.dp))
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 2.dp
+                ) {
+                    Column(modifier = Modifier.padding(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                desk.status,
-                                fontSize = 10.sp,
-                                color = getStatusColor(desk.status)
+                                if (message.isComplete) {
+                                    if (message.success == true) "\u2705" else "\u274C"
+                                } else "\u23F3",
+                                fontSize = 14.sp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                message.toolName,
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 14.sp
+                            )
+                        }
+                        // 간단한 입력 표시
+                        val inputPreview = message.toolInput.entries.take(1)
+                            .joinToString { "${it.key}: ${it.value.toString().take(30)}" }
+                        if (inputPreview.isNotEmpty()) {
+                            Text(
+                                inputPreview,
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        if (!message.isComplete) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            LinearProgressIndicator(
+                                modifier = Modifier.fillMaxWidth(),
+                                color = MaterialTheme.colorScheme.primary
                             )
                         }
                     }
                 }
             }
         }
-        if (desks.isEmpty()) {
-            item {
+        is ClaudeMessage.ResultInfo -> {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center
+            ) {
+                val totalTokens = message.inputTokens + message.outputTokens
+                val durationSec = message.durationMs / 1000.0
                 Text(
-                    "No desks available",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(8.dp)
+                    "${"%.1f".format(durationSec)}s \u00B7 $totalTokens tokens",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
+        is ClaudeMessage.ErrorMessage -> {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Start
+            ) {
+                Text("\u26A0\uFE0F", fontSize = 20.sp, modifier = Modifier.padding(end = 8.dp))
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFFF14C4C).copy(alpha = 0.2f)
+                ) {
+                    Text(
+                        message.error,
+                        modifier = Modifier.padding(12.dp),
+                        color = Color(0xFFF14C4C)
+                    )
+                }
+            }
+        }
+        is ClaudeMessage.UserResponse -> {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.secondaryContainer
+                ) {
+                    Text(
+                        message.content,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        fontSize = 12.sp
+                    )
+                }
+            }
+        }
     }
 }
 
 @Composable
-fun ClaudeMessageBubble(
-    message: ClaudeMessage,
-    pcIcon: String,
-    isStreaming: Boolean = false
-) {
-    val isUser = message.isUser
-    val bubbleColor = if (isUser) MaterialTheme.colorScheme.primaryContainer
-    else MaterialTheme.colorScheme.surfaceVariant
-
+fun StreamingBubble(content: String, pcIcon: String) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
+        horizontalArrangement = Arrangement.Start
     ) {
-        if (!isUser) {
-            Text(pcIcon, fontSize = 20.sp, modifier = Modifier.padding(end = 8.dp))
-        }
-
+        Text(pcIcon, fontSize = 20.sp, modifier = Modifier.padding(end = 8.dp))
         Surface(
-            shape = RoundedCornerShape(
-                topStart = 16.dp,
-                topEnd = 16.dp,
-                bottomStart = if (isUser) 16.dp else 4.dp,
-                bottomEnd = if (isUser) 4.dp else 16.dp
-            ),
-            color = bubbleColor,
+            shape = RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant,
             modifier = Modifier.widthIn(max = 300.dp)
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
-                // 툴 이벤트 표시
-                message.event?.let { event ->
-                    when (event) {
-                        is ClaudeEvent.ToolStart -> {
-                            ToolCallCard(
-                                icon = "🔧",
-                                title = event.toolName,
-                                subtitle = formatToolInput(event.toolInput)
-                            )
-                        }
-                        is ClaudeEvent.ToolComplete -> {
-                            ToolCallCard(
-                                icon = "✅",
-                                title = "${event.toolName} completed",
-                                subtitle = null
-                            )
-                        }
-                        is ClaudeEvent.PermissionRequest -> {
-                            ToolCallCard(
-                                icon = "⚠️",
-                                title = "Permission: ${event.toolName}",
-                                subtitle = formatToolInput(event.toolInput)
-                            )
-                        }
-                        is ClaudeEvent.Error -> {
-                            Text(
-                                "❌ ${event.error}",
-                                color = Color(0xFFF14C4C)
-                            )
-                        }
-                        else -> {
-                            Text(message.content)
-                        }
-                    }
-                } ?: run {
-                    Text(message.content)
-                }
-
-                // 스트리밍 인디케이터
-                if (isStreaming) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    LinearProgressIndicator(
-                        modifier = Modifier.fillMaxWidth(),
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-        }
-
-        if (isUser) {
-            Text("📱", fontSize = 20.sp, modifier = Modifier.padding(start = 8.dp))
-        }
-    }
-}
-
-@Composable
-fun ToolCallCard(icon: String, title: String, subtitle: String?) {
-    Surface(
-        shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 2.dp
-    ) {
-        Column(modifier = Modifier.padding(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(icon, fontSize = 16.sp)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(title, fontWeight = FontWeight.Medium, fontSize = 14.sp)
-            }
-            subtitle?.let {
-                Text(
-                    it,
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+                Text(content)
+                Spacer(modifier = Modifier.height(4.dp))
+                LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.primary
                 )
             }
         }
     }
 }
 
-fun formatToolInput(input: Map<String, Any?>): String {
-    return input.entries.take(2).joinToString(", ") { (k, v) ->
-        "$k: ${v.toString().take(30)}"
+// ============ 요청 바 (권한/질문) ============
+
+@Composable
+fun RequestBar(
+    request: PendingRequest,
+    onPermissionResponse: (String) -> Unit,
+    onQuestionResponse: (String) -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        tonalElevation = 4.dp,
+        color = MaterialTheme.colorScheme.secondaryContainer
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            when (request) {
+                is PendingRequest.Permission -> {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("\u26A0\uFE0F", fontSize = 20.sp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Permission: ${request.toolName}", fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { onPermissionResponse("deny") },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Deny", color = Color(0xFFF14C4C))
+                        }
+                        Button(
+                            onClick = { onPermissionResponse("allow") },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Allow")
+                        }
+                    }
+                }
+                is PendingRequest.Question -> {
+                    val question = request.questions.firstOrNull()
+                    if (question != null) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("\u2753", fontSize = 20.sp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(question.header, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(question.question, fontSize = 14.sp)
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // 선택지 버튼
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(question.options) { option ->
+                                OutlinedButton(
+                                    onClick = { onQuestionResponse(option) }
+                                ) {
+                                    Text(option, maxLines = 1)
+                                }
+                            }
+                        }
+
+                        // 커스텀 입력
+                        var customAnswer by remember { mutableStateOf("") }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = customAnswer,
+                                onValueChange = { customAnswer = it },
+                                modifier = Modifier.weight(1f),
+                                placeholder = { Text("Or type...") },
+                                singleLine = true
+                            )
+                            Button(
+                                onClick = {
+                                    if (customAnswer.isNotBlank()) {
+                                        onQuestionResponse(customAnswer)
+                                    }
+                                },
+                                enabled = customAnswer.isNotBlank()
+                            ) {
+                                Text("Send")
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
+// ============ 컨트롤 바 ============
+
 @Composable
-fun ClaudeControlBar(
+fun ControlBar(
     desk: DeskInfo,
     onStop: () -> Unit,
     onNewSession: () -> Unit
@@ -850,7 +743,6 @@ fun ClaudeControlBar(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 상태 표시
             Text(getStatusIcon(desk.status), fontSize = 16.sp)
             Text(
                 desk.status.uppercase(),
@@ -861,7 +753,6 @@ fun ClaudeControlBar(
 
             Spacer(modifier = Modifier.weight(1f))
 
-            // Stop 버튼
             if (desk.status == "working" || desk.status == "permission") {
                 FilledTonalButton(
                     onClick = onStop,
@@ -870,13 +761,12 @@ fun ClaudeControlBar(
                     ),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                 ) {
-                    Icon(Icons.Default.Stop, contentDescription = "Stop", modifier = Modifier.size(16.dp))
+                    Icon(Icons.Default.Close, contentDescription = "Stop", modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
                     Text("Stop", fontSize = 12.sp)
                 }
             }
 
-            // New Session 버튼
             FilledTonalButton(
                 onClick = onNewSession,
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
@@ -889,8 +779,10 @@ fun ClaudeControlBar(
     }
 }
 
+// ============ 입력 바 ============
+
 @Composable
-fun ClaudeInputBar(
+fun InputBar(
     value: String,
     onValueChange: (String) -> Unit,
     onSend: () -> Unit,
@@ -926,99 +818,7 @@ fun ClaudeInputBar(
     }
 }
 
-@Composable
-fun PermissionDialog(
-    permission: ClaudeEvent.PermissionRequest,
-    onAllow: () -> Unit,
-    onDeny: () -> Unit,
-    onAllowAll: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = { },
-        icon = { Text("⚠️", fontSize = 32.sp) },
-        title = { Text("Permission Required") },
-        text = {
-            Column {
-                Text("Tool: ${permission.toolName}", fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(8.dp))
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant
-                ) {
-                    Text(
-                        formatToolInput(permission.toolInput),
-                        modifier = Modifier.padding(8.dp),
-                        fontSize = 12.sp
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = onDeny) {
-                    Text("Deny", color = Color(0xFFF14C4C))
-                }
-                Button(onClick = onAllow) {
-                    Text("Allow")
-                }
-                Button(onClick = onAllowAll) {
-                    Text("Allow All")
-                }
-            }
-        }
-    )
-}
-
-@Composable
-fun QuestionDialog(
-    question: ClaudeEvent.AskQuestion,
-    onAnswer: (String) -> Unit
-) {
-    var customAnswer by remember { mutableStateOf("") }
-
-    AlertDialog(
-        onDismissRequest = { },
-        icon = { Text("❓", fontSize = 32.sp) },
-        title = { Text("Question") },
-        text = {
-            Column {
-                Text(question.question)
-                Spacer(modifier = Modifier.height(16.dp))
-
-                question.options.forEach { option ->
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onAnswer(option) },
-                        shape = RoundedCornerShape(8.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant
-                    ) {
-                        Text(
-                            option,
-                            modifier = Modifier.padding(12.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-
-                OutlinedTextField(
-                    value = customAnswer,
-                    onValueChange = { customAnswer = it },
-                    label = { Text("Custom answer") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = { onAnswer(customAnswer) },
-                enabled = customAnswer.isNotBlank()
-            ) {
-                Text("Submit")
-            }
-        }
-    )
-}
+// ============ 업데이트 다이얼로그 ============
 
 @Composable
 fun UpdateDialog(
@@ -1037,7 +837,7 @@ fun UpdateDialog(
                 if (downloadProgress >= 0) {
                     Spacer(modifier = Modifier.height(16.dp))
                     LinearProgressIndicator(
-                        progress = { downloadProgress / 100f },
+                        progress = downloadProgress / 100f,
                         modifier = Modifier.fillMaxWidth()
                     )
                     Text("Downloading: $downloadProgress%", fontSize = 12.sp)
@@ -1058,152 +858,4 @@ fun UpdateDialog(
             }
         }
     )
-}
-
-// ============ Legacy Chat Screen (Phase 1) ============
-
-@Composable
-fun LegacyChatScreen(viewModel: MainViewModel) {
-    val isConnected by viewModel.isConnected.collectAsState()
-    val devices by viewModel.devices.collectAsState()
-    val chatMessages by viewModel.chatMessages.collectAsState()
-
-    var chatInput by remember { mutableStateOf("") }
-    val chatListState = rememberLazyListState()
-
-    LaunchedEffect(chatMessages.size) {
-        if (chatMessages.isNotEmpty()) {
-            chatListState.animateScrollToItem(chatMessages.size - 1)
-        }
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
-    ) {
-        // Devices
-        Text(
-            text = "Connected Devices (${devices.size})",
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(devices) { device ->
-                val char = getCharacter(device.deviceId, device.deviceType)
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Text(char.icon, fontSize = 14.sp)
-                        Text(char.name, fontSize = 13.sp)
-                    }
-                }
-            }
-            if (devices.isEmpty()) {
-                item {
-                    Text(
-                        "No devices connected",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 13.sp
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Deploy button
-        Button(
-            onClick = { viewModel.requestDeploy() },
-            enabled = isConnected && devices.any { it.deviceType == "pylon" },
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF569CD6)),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Deploy")
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Chat
-        Text(
-            text = "Chat",
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .background(
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    shape = RoundedCornerShape(8.dp)
-                )
-                .padding(8.dp)
-        ) {
-            if (chatMessages.isEmpty()) {
-                Text(
-                    "No messages yet",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.align(Alignment.Center)
-                )
-            } else {
-                LazyColumn(
-                    state = chatListState,
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(chatMessages) { message ->
-                        val char = getCharacter(message.from, message.deviceType)
-                        Row(
-                            modifier = Modifier.padding(vertical = 4.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text(message.time, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(char.icon, fontSize = 14.sp)
-                            Text("${char.name}:", fontSize = 14.sp, color = Color(0xFF569CD6), fontWeight = FontWeight.Medium)
-                            Text(message.message, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
-                        }
-                    }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            OutlinedTextField(
-                value = chatInput,
-                onValueChange = { chatInput = it },
-                modifier = Modifier.weight(1f),
-                placeholder = { Text("Type a message...") },
-                singleLine = true,
-                enabled = isConnected
-            )
-            Button(
-                onClick = {
-                    if (chatInput.isNotBlank()) {
-                        viewModel.sendChat(chatInput)
-                        chatInput = ""
-                    }
-                },
-                enabled = isConnected && chatInput.isNotBlank()
-            ) {
-                Text("Send")
-            }
-        }
-    }
 }
