@@ -6,7 +6,7 @@ import okhttp3.*
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
-class RelayClient(private val url: String, private val deviceId: String) {
+class RelayClient(private val url: String, private val deviceId: Int) {
     private var webSocket: WebSocket? = null
     private val client = OkHttpClient.Builder()
         .readTimeout(0, TimeUnit.MILLISECONDS)
@@ -16,10 +16,24 @@ class RelayClient(private val url: String, private val deviceId: String) {
     private val _isConnected = MutableStateFlow(false)
     val isConnected: StateFlow<Boolean> = _isConnected
 
+    private val _isAuthenticated = MutableStateFlow(false)
+    val isAuthenticated: StateFlow<Boolean> = _isAuthenticated
+
+    private val _deviceInfo = MutableStateFlow<DeviceInfo?>(null)
+    val deviceInfo: StateFlow<DeviceInfo?> = _deviceInfo
+
     private val _messages = MutableStateFlow<List<String>>(emptyList())
     val messages: StateFlow<List<String>> = _messages
 
     private var onDataCallback: ((Map<String, Any?>) -> Unit)? = null
+
+    data class DeviceInfo(
+        val deviceId: Int,
+        val deviceType: String,
+        val name: String,
+        val icon: String,
+        val role: String
+    )
 
     fun setOnDataCallback(callback: (Map<String, Any?>) -> Unit) {
         onDataCallback = callback
@@ -33,31 +47,32 @@ class RelayClient(private val url: String, private val deviceId: String) {
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 _isConnected.value = true
-                addMessage("Connected to Estelle Relay")
+                addMessage("Connected to Estelle Relay v1")
 
-                // 디바이스 등록
-                val identify = JSONObject().apply {
-                    put("type", "identify")
-                    put("deviceId", deviceId)
-                    put("deviceType", "mobile")
+                // 인증 요청
+                val auth = JSONObject().apply {
+                    put("type", "auth")
+                    put("payload", JSONObject().apply {
+                        put("deviceId", deviceId)
+                        put("deviceType", "mobile")
+                    })
                 }
-                webSocket.send(identify.toString())
-
-                // 디바이스 목록 요청
-                val getDevices = JSONObject().apply {
-                    put("type", "getDevices")
-                }
-                webSocket.send(getDevices.toString())
+                webSocket.send(auth.toString())
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
                 try {
                     val json = JSONObject(text)
                     val data = jsonToMap(json)
+
+                    // 인증 결과 처리
+                    handleAuthResult(json)
+
                     onDataCallback?.invoke(data)
 
-                    // 채팅 메시지가 아닌 경우만 로그에 추가
-                    if (json.optString("type") != "chat") {
+                    // 로그 (일부 메시지 제외)
+                    val type = json.optString("type")
+                    if (type != "chat" && type != "claude_event" && type != "device_status") {
                         addMessage("Received: ${text.take(100)}...")
                     }
                 } catch (e: Exception) {
@@ -71,6 +86,8 @@ class RelayClient(private val url: String, private val deviceId: String) {
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 _isConnected.value = false
+                _isAuthenticated.value = false
+                _deviceInfo.value = null
                 addMessage("Disconnected from Relay")
 
                 // 재연결 시도
@@ -83,6 +100,8 @@ class RelayClient(private val url: String, private val deviceId: String) {
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 _isConnected.value = false
+                _isAuthenticated.value = false
+                _deviceInfo.value = null
                 addMessage("Connection error: ${t.message}")
 
                 // 재연결 시도
@@ -93,6 +112,28 @@ class RelayClient(private val url: String, private val deviceId: String) {
                 }, 3000)
             }
         })
+    }
+
+    private fun handleAuthResult(json: JSONObject) {
+        if (json.optString("type") == "auth_result") {
+            val payload = json.optJSONObject("payload")
+            if (payload?.optBoolean("success") == true) {
+                _isAuthenticated.value = true
+                val device = payload.optJSONObject("device")
+                if (device != null) {
+                    _deviceInfo.value = DeviceInfo(
+                        deviceId = device.optInt("deviceId"),
+                        deviceType = device.optString("deviceType"),
+                        name = device.optString("name"),
+                        icon = device.optString("icon"),
+                        role = device.optString("role")
+                    )
+                }
+                addMessage("Authenticated as ${_deviceInfo.value?.name ?: deviceId}")
+            } else {
+                addMessage("Auth failed: ${payload?.optString("error")}")
+            }
+        }
     }
 
     private fun jsonToMap(json: JSONObject): Map<String, Any?> {
@@ -113,41 +154,118 @@ class RelayClient(private val url: String, private val deviceId: String) {
         return map
     }
 
+    // ============ 메시지 전송 ============
+
+    fun send(json: JSONObject) {
+        webSocket?.send(json.toString())
+    }
+
     fun sendChat(message: String) {
         val json = JSONObject().apply {
             put("type", "chat")
             put("message", message)
+            put("broadcast", "all")
         }
-        webSocket?.send(json.toString())
-    }
-
-    fun send(message: String) {
-        val json = JSONObject().apply {
-            put("type", "echo")
-            put("from", deviceId)
-            put("payload", message)
-        }
-        webSocket?.send(json.toString())
-        addMessage("Sent: $message")
+        send(json)
     }
 
     fun sendPing() {
         val json = JSONObject().apply {
             put("type", "ping")
         }
-        webSocket?.send(json.toString())
+        send(json)
         addMessage("Sent ping")
     }
 
-    fun sendDeployRequest(targetDeviceId: String? = null) {
+    // ============ 데스크 관리 ============
+
+    fun requestDeskList() {
         val json = JSONObject().apply {
-            put("type", "deployRequest")
-            if (targetDeviceId != null) {
-                put("target", targetDeviceId)
-            }
+            put("type", "desk_list")
+            put("broadcast", "pylons")
         }
-        webSocket?.send(json.toString())
-        addMessage("Sent deploy request${targetDeviceId?.let { " to $it" } ?: ""}")
+        send(json)
+    }
+
+    fun switchDesk(deviceId: Int, deskId: String) {
+        val json = JSONObject().apply {
+            put("type", "desk_switch")
+            put("to", JSONObject().apply {
+                put("deviceId", deviceId)
+                put("deviceType", "pylon")
+            })
+            put("payload", JSONObject().apply {
+                put("deskId", deskId)
+            })
+        }
+        send(json)
+    }
+
+    // ============ Claude 제어 ============
+
+    fun sendClaudeMessage(targetDeviceId: Int, deskId: String, message: String) {
+        val json = JSONObject().apply {
+            put("type", "claude_send")
+            put("to", JSONObject().apply {
+                put("deviceId", targetDeviceId)
+                put("deviceType", "pylon")
+            })
+            put("payload", JSONObject().apply {
+                put("deskId", deskId)
+                put("message", message)
+            })
+        }
+        send(json)
+        addMessage("Sent to Claude: ${message.take(50)}...")
+    }
+
+    fun sendClaudePermission(targetDeviceId: Int, deskId: String, toolUseId: String, decision: String) {
+        val json = JSONObject().apply {
+            put("type", "claude_permission")
+            put("to", JSONObject().apply {
+                put("deviceId", targetDeviceId)
+                put("deviceType", "pylon")
+            })
+            put("payload", JSONObject().apply {
+                put("deskId", deskId)
+                put("toolUseId", toolUseId)
+                put("decision", decision)
+            })
+        }
+        send(json)
+        addMessage("Permission: $decision")
+    }
+
+    fun sendClaudeAnswer(targetDeviceId: Int, deskId: String, toolUseId: String, answer: String) {
+        val json = JSONObject().apply {
+            put("type", "claude_answer")
+            put("to", JSONObject().apply {
+                put("deviceId", targetDeviceId)
+                put("deviceType", "pylon")
+            })
+            put("payload", JSONObject().apply {
+                put("deskId", deskId)
+                put("toolUseId", toolUseId)
+                put("answer", answer)
+            })
+        }
+        send(json)
+    }
+
+    fun sendClaudeControl(targetDeviceId: Int, deskId: String, action: String) {
+        val json = JSONObject().apply {
+            put("type", "claude_control")
+            put("to", JSONObject().apply {
+                put("deviceId", targetDeviceId)
+                put("deviceType", "pylon")
+            })
+            put("payload", JSONObject().apply {
+                put("deskId", deskId)
+                put("action", action)
+            })
+        }
+        send(json)
+        addMessage("Claude control: $action")
     }
 
     fun disconnect() {

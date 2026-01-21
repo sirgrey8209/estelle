@@ -1,5 +1,6 @@
-const WebSocket = require('ws');
-const logger = require('./logger');
+import { WebSocketServer, WebSocket } from 'ws';
+import logger from './logger.js';
+import packetLogger from './packetLogger.js';
 
 class LocalServer {
   constructor(port) {
@@ -7,11 +8,12 @@ class LocalServer {
     this.wss = null;
     this.clients = new Set();
     this.onMessageCallback = null;
-    this.relayClient = null;
+    this.onConnectCallback = null;
+    this.getRelayStatus = () => false;
   }
 
   start() {
-    this.wss = new WebSocket.Server({ port: this.port });
+    this.wss = new WebSocketServer({ port: this.port });
 
     this.wss.on('listening', () => {
       logger.log(`[${new Date().toISOString()}] Local server started on port ${this.port}`);
@@ -21,12 +23,15 @@ class LocalServer {
       this.clients.add(ws);
       logger.log(`[${new Date().toISOString()}] Desktop connected. Total: ${this.clients.size}`);
 
-      // 연결 확인 및 현재 상태 전송
       ws.send(JSON.stringify({
         type: 'connected',
         message: 'Connected to Pylon',
-        relayStatus: this.relayClient ? this.relayClient.getStatus() : false
+        relayStatus: this.getRelayStatus()
       }));
+
+      if (this.onConnectCallback) {
+        this.onConnectCallback(ws);
+      }
 
       ws.on('message', (message) => {
         try {
@@ -56,15 +61,29 @@ class LocalServer {
     });
   }
 
-  setRelayClient(relayClient) {
-    this.relayClient = relayClient;
+  stop() {
+    if (this.wss) {
+      this.wss.close();
+    }
+  }
+
+  setRelayStatusCallback(callback) {
+    this.getRelayStatus = callback;
   }
 
   onMessage(callback) {
     this.onMessageCallback = callback;
   }
 
+  onConnect(callback) {
+    this.onConnectCallback = callback;
+  }
+
   broadcast(data) {
+    if (data.type !== 'relay_status' && data.type !== 'pong') {
+      packetLogger.logSend('desktop', data);
+    }
+
     const message = JSON.stringify(data);
     this.clients.forEach((client) => {
       if (client.readyState === WebSocket.OPEN) {
@@ -75,10 +94,10 @@ class LocalServer {
 
   sendRelayStatus(isConnected) {
     this.broadcast({
-      type: 'relayStatus',
+      type: 'relay_status',
       connected: isConnected
     });
   }
 }
 
-module.exports = LocalServer;
+export default LocalServer;

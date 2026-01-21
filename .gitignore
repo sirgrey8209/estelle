@@ -42,6 +42,13 @@ estelle-mobile/.idea/
 # Runtime
 *.pid
 
+# Pylon runtime data
+estelle-pylon/logs/
+estelle-pylon/debug/
+estelle-pylon/messages/
+estelle-pylon/desks.json
+nul
+
 # Keystore
 *.keystore
 keystore-info.txt

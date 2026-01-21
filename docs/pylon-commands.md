@@ -50,7 +50,7 @@ Pylon을 파일 기반으로 제어하는 방법입니다.
   "success": true,
   "data": {
     "pid": 12345,
-    "deviceId": "home-pc",
+    "deviceId": 1,
     "relayConnected": true,
     "desktopClients": 1,
     "uptime": 3600
@@ -249,3 +249,7 @@ taskkill /PID $(cat estelle-pylon/pylon.pid) /F
 2. **결과 파일은 덮어쓰기** - 새 명령 실행 시 이전 결과가 사라집니다
 3. **timestamp 권장** - 같은 명령 중복 실행 방지를 위해 timestamp 포함 권장
 4. **1초 폴링** - Pylon이 1초마다 명령 파일을 확인합니다
+
+---
+
+*Last updated: 2026-01-21*

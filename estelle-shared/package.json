@@ -1,0 +1,10 @@
+{
+  "name": "estelle-shared",
+  "version": "2.0.0",
+  "description": "Estelle shared types and constants",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
