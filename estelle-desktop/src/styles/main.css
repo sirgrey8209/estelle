@@ -1230,6 +1230,197 @@ body {
   color: var(--nord3);
 }
 
+/* Request Input Area (통합 요청 영역) */
+.request-input-area {
+  padding: 12px 20px;
+  background-color: var(--nord1);
+  border-top: 1px solid var(--nord2);
+}
+
+.request-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.request-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.request-badge.permission {
+  background-color: var(--nord12);
+  color: var(--nord0);
+}
+
+.request-badge.session {
+  background-color: var(--nord10);
+  color: var(--nord0);
+}
+
+.request-tool {
+  font-size: 13px;
+  color: var(--nord5);
+  font-family: monospace;
+}
+
+.request-options {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.btn-allow {
+  padding: 8px 20px;
+  font-size: 13px;
+  background-color: var(--nord14);
+  color: var(--nord0);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.btn-allow:hover {
+  opacity: 0.9;
+}
+
+.btn-deny {
+  padding: 8px 20px;
+  font-size: 13px;
+  background-color: var(--nord11);
+  color: var(--nord6);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.btn-deny:hover {
+  opacity: 0.9;
+}
+
+.question-item {
+  margin-bottom: 12px;
+}
+
+.question-item:last-child {
+  margin-bottom: 0;
+}
+
+.question-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.btn-option {
+  padding: 8px 16px;
+  font-size: 13px;
+  background-color: var(--nord2);
+  border: 1px solid var(--nord3);
+  color: var(--nord5);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-option:hover {
+  background-color: var(--nord3);
+  border-color: var(--nord9);
+}
+
+.btn-option.selected {
+  background-color: var(--nord10);
+  border-color: var(--nord10);
+  color: var(--nord6);
+}
+
+.question-submit {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.pending-count {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--nord3);
+  text-align: center;
+}
+
+/* Response Bubble (응답 기록) */
+.response-bubble {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background-color: var(--nord2);
+  font-size: 12px;
+}
+
+.response-tool {
+  font-family: monospace;
+  color: var(--nord4);
+}
+
+.response-decision {
+  font-weight: 600;
+}
+
+.response-decision.allowed {
+  color: var(--nord14);
+}
+
+.response-decision.denied {
+  color: var(--nord11);
+}
+
+.response-answers {
+  color: var(--nord5);
+}
+
+/* Session Recovery */
+.session-recovery {
+  background-color: var(--nord2);
+  border: 1px solid var(--nord10);
+  border-radius: 8px;
+  padding: 16px;
+  margin: 12px;
+  text-align: center;
+}
+
+.session-recovery p {
+  margin: 0 0 12px 0;
+  color: var(--nord5);
+  font-size: 14px;
+}
+
+.session-recovery-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+}
+
+.btn-secondary {
+  padding: 8px 20px;
+  font-size: 13px;
+  background-color: var(--nord3);
+  color: var(--nord5);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.btn-secondary:hover {
+  background-color: var(--nord4);
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar {
   width: 8px;

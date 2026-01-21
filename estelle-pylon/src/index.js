@@ -357,6 +357,12 @@ class Pylon {
       case 'clear':
         this.claudeManager.newSession(deskId);
         messageStore.clear(deskId);
+        this.broadcastDeskList();
+        break;
+      case 'resume':
+        // 세션 재개 - 빈 메시지로 컨텍스트 복구
+        this.claudeManager.resumeSession(deskId);
+        this.broadcastDeskList();
         break;
       case 'compact':
         this.log(`Compact not implemented yet`);
@@ -369,13 +375,20 @@ class Pylon {
   onDesktopConnect(ws) {
     const desks = deskStore.getAllDesks();
 
+    // 각 데스크에 세션 상태 추가
+    const desksWithSessionInfo = desks.map(desk => ({
+      ...desk,
+      hasActiveSession: this.claudeManager.hasActiveSession(desk.deskId),
+      canResume: !!desk.claudeSessionId
+    }));
+
     // 데스크 목록 전송
     const deskListMsg = {
       type: 'desk_list_result',
       payload: {
         deviceId: this.deviceId,
         deviceInfo: this.deviceInfo,
-        desks
+        desks: desksWithSessionInfo
       }
     };
     ws.send(JSON.stringify(deskListMsg));
@@ -396,15 +409,37 @@ class Pylon {
         ws.send(JSON.stringify(historyMsg));
         packetLogger.logSend('desktop', historyMsg);
       }
+
+      // pending 이벤트 전송 (질문/권한 요청)
+      const pendingEvent = this.claudeManager.getPendingEvent(desk.deskId);
+      if (pendingEvent) {
+        const eventMsg = {
+          type: 'claude_event',
+          payload: {
+            deskId: desk.deskId,
+            event: pendingEvent
+          }
+        };
+        ws.send(JSON.stringify(eventMsg));
+        packetLogger.logSend('desktop', eventMsg);
+      }
     }
   }
 
   broadcastDeskList() {
     const desks = deskStore.getAllDesks();
+
+    // 각 데스크에 세션 상태 추가
+    const desksWithSessionInfo = desks.map(desk => ({
+      ...desk,
+      hasActiveSession: this.claudeManager.hasActiveSession(desk.deskId),
+      canResume: !!desk.claudeSessionId
+    }));
+
     const payload = {
       deviceId: this.deviceId,
       deviceInfo: this.deviceInfo,
-      desks
+      desks: desksWithSessionInfo
     };
 
     this.send({

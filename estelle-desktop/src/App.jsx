@@ -16,16 +16,16 @@ function App() {
   const [claudeMessages, setClaudeMessages] = useState([]);
   const [claudeInput, setClaudeInput] = useState('');
   const [currentTextBuffer, setCurrentTextBuffer] = useState('');
-  const [pendingPermission, setPendingPermission] = useState(null);
-  const [pendingQuestion, setPendingQuestion] = useState(null);
+  // 통합 요청 큐: [{ type: 'question'|'permission', ... }]
+  const [pendingRequests, setPendingRequests] = useState([]);
   const [claudeState, setClaudeState] = useState('idle');
   const [isThinking, setIsThinking] = useState(false);
   const [workStartTime, setWorkStartTime] = useState(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
-  // 데스크별 메시지 저장소
+  // 데스크별 저장소
   const deskMessagesRef = useRef(new Map()); // deskId -> messages[]
-  const deskQuestionsRef = useRef(new Map()); // deskId -> pendingQuestion
+  const deskRequestsRef = useRef(new Map()); // deskId -> pendingRequests[]
 
   // 모달 상태
   const [showNewDeskModal, setShowNewDeskModal] = useState(false);
@@ -122,7 +122,7 @@ function App() {
         });
         break;
 
-      // 권한 요청
+      // 권한 요청 → 요청 큐에 추가
       case 'permission_request':
         setCurrentTextBuffer(prev => {
           if (prev) {
@@ -132,15 +132,16 @@ function App() {
           }
           return '';
         });
-        setPendingPermission({
+        setPendingRequests(prev => [...prev, {
+          type: 'permission',
           toolName: event.toolName,
           toolInput: event.toolInput,
           toolUseId: event.toolUseId
-        });
+        }]);
         setClaudeState('permission');
         break;
 
-      // 질문
+      // 질문 (멀티 선택지 지원) → 요청 큐에 추가
       case 'askQuestion':
         setCurrentTextBuffer(prev => {
           if (prev) {
@@ -151,14 +152,19 @@ function App() {
           return '';
         });
         if (event.questions && event.questions.length > 0) {
-          const q = event.questions[0];
-          setPendingQuestion({
-            question: q.question,
-            header: q.header,
-            options: q.options?.map(opt => opt.label) || [],
+          setPendingRequests(prev => [...prev, {
+            type: 'question',
+            questions: event.questions.map(q => ({
+              question: q.question,
+              header: q.header,
+              options: q.options?.map(opt => opt.label) || [],
+              multiSelect: q.multiSelect || false
+            })),
+            answers: {},
             toolUseId: event.toolUseId
-          });
+          }]);
         }
+        setClaudeState('permission');
         break;
 
       // 상태 (idle/working/permission)
@@ -256,8 +262,48 @@ function App() {
         break;
 
       case 'claude_event':
-        if (payload?.event) {
-          handleClaudeEvent(payload.event);
+        if (payload?.event && payload?.deskId) {
+          // 현재 선택된 데스크의 이벤트만 화면에 표시
+          if (selectedDesk?.deskId === payload.deskId) {
+            handleClaudeEvent(payload.event);
+          } else {
+            // 다른 데스크의 이벤트는 저장만 (textComplete, error 등)
+            const event = payload.event;
+            if (event.type === 'textComplete' || event.type === 'error' || event.type === 'result') {
+              const saved = deskMessagesRef.current.get(payload.deskId) || [];
+              if (event.type === 'textComplete') {
+                saved.push({ role: 'assistant', type: 'text', content: event.text, timestamp: Date.now() });
+              } else if (event.type === 'error') {
+                saved.push({ role: 'system', type: 'error', content: event.error, timestamp: Date.now() });
+              }
+              deskMessagesRef.current.set(payload.deskId, saved);
+            }
+            // 다른 데스크의 요청은 큐에 저장
+            if (event.type === 'askQuestion' || event.type === 'permission_request') {
+              const savedRequests = deskRequestsRef.current.get(payload.deskId) || [];
+              if (event.type === 'askQuestion') {
+                savedRequests.push({
+                  type: 'question',
+                  questions: event.questions.map(q => ({
+                    question: q.question,
+                    header: q.header,
+                    options: q.options?.map(opt => opt.label) || [],
+                    multiSelect: q.multiSelect || false
+                  })),
+                  answers: {},
+                  toolUseId: event.toolUseId
+                });
+              } else {
+                savedRequests.push({
+                  type: 'permission',
+                  toolName: event.toolName,
+                  toolInput: event.toolInput,
+                  toolUseId: event.toolUseId
+                });
+              }
+              deskRequestsRef.current.set(payload.deskId, savedRequests);
+            }
+          }
         }
         break;
 
@@ -378,39 +424,117 @@ function App() {
     setWorkStartTime(Date.now());
   };
 
+  // 현재 처리할 요청 (큐의 첫 번째)
+  const currentRequest = pendingRequests[0] || null;
+
+  // 요청 완료 후 큐에서 제거
+  const completeCurrentRequest = () => {
+    setPendingRequests(prev => prev.slice(1));
+    // 다음 요청이 없으면 working 상태로
+    if (pendingRequests.length <= 1) {
+      setClaudeState('working');
+    }
+  };
+
+  // 권한 응답
   const respondPermission = (decision) => {
-    if (!pendingPermission || !selectedDesk) return;
+    if (!currentRequest || currentRequest.type !== 'permission' || !selectedDesk) return;
+
+    // 응답 메시지 기록
+    const decisionText = decision === 'allow' ? '승인됨' : '거부됨';
+    setClaudeMessages(prev => [...prev, {
+      role: 'user',
+      type: 'response',
+      responseType: 'permission',
+      toolName: currentRequest.toolName,
+      decision: decisionText,
+      timestamp: Date.now()
+    }]);
 
     send({
       type: 'claude_permission',
       to: { deviceId: selectedDesk.deviceId, deviceType: 'pylon' },
       payload: {
         deskId: selectedDesk.deskId,
-        toolUseId: pendingPermission.toolUseId,
+        toolUseId: currentRequest.toolUseId,
         decision
       }
     });
 
-    setPendingPermission(null);
-    setClaudeState('working');
+    completeCurrentRequest();
   };
 
-  const respondQuestion = (answer) => {
-    if (!pendingQuestion || !selectedDesk) return;
+  // 멀티 선택지: 개별 질문에 답변 선택/변경
+  const selectQuestionAnswer = (questionIndex, answer) => {
+    if (!currentRequest || currentRequest.type !== 'question') return;
+    setPendingRequests(prev => {
+      const updated = [...prev];
+      updated[0] = {
+        ...updated[0],
+        answers: { ...updated[0].answers, [questionIndex]: answer }
+      };
+      return updated;
+    });
+  };
+
+  // 멀티 선택지: 모든 답변 제출
+  const submitQuestionAnswers = () => {
+    if (!currentRequest || currentRequest.type !== 'question' || !selectedDesk) return;
+
+    // 답변을 배열로 변환 (질문 순서대로)
+    const answersArray = currentRequest.questions.map((_, idx) =>
+      currentRequest.answers[idx] || ''
+    );
+    const answerToSend = answersArray.length === 1 ? answersArray[0] : answersArray;
+
+    // 응답 메시지 기록
+    setClaudeMessages(prev => [...prev, {
+      role: 'user',
+      type: 'response',
+      responseType: 'question',
+      answers: answersArray,
+      timestamp: Date.now()
+    }]);
 
     send({
       type: 'claude_answer',
       to: { deviceId: selectedDesk.deviceId, deviceType: 'pylon' },
       payload: {
         deskId: selectedDesk.deskId,
-        toolUseId: pendingQuestion.toolUseId,
+        toolUseId: currentRequest.toolUseId,
+        answer: answerToSend
+      }
+    });
+
+    deskRequestsRef.current.delete(selectedDesk.deskId);
+    completeCurrentRequest();
+  };
+
+  // 단일 질문 빠른 응답 (선택 즉시 제출)
+  const respondQuestionDirect = (answer) => {
+    if (!currentRequest || currentRequest.type !== 'question' || !selectedDesk) return;
+
+    // 응답 메시지 기록
+    setClaudeMessages(prev => [...prev, {
+      role: 'user',
+      type: 'response',
+      responseType: 'question',
+      answers: [answer],
+      timestamp: Date.now()
+    }]);
+
+    send({
+      type: 'claude_answer',
+      to: { deviceId: selectedDesk.deviceId, deviceType: 'pylon' },
+      payload: {
+        deskId: selectedDesk.deskId,
+        toolUseId: currentRequest.toolUseId,
         answer
       }
     });
 
-    setPendingQuestion(null);
-    deskQuestionsRef.current.delete(selectedDesk.deskId);
-    setClaudeState('working');
+    deskRequestsRef.current.delete(selectedDesk.deskId);
+    completeCurrentRequest();
   };
 
   const sendClaudeControl = (action) => {
@@ -429,26 +553,26 @@ function App() {
   };
 
   const selectDesk = (desk) => {
-    // 현재 데스크의 메시지와 질문 저장
+    // 현재 데스크의 메시지와 요청 저장
     if (selectedDesk) {
       deskMessagesRef.current.set(selectedDesk.deskId, claudeMessages);
-      if (pendingQuestion) {
-        deskQuestionsRef.current.set(selectedDesk.deskId, pendingQuestion);
+      if (pendingRequests.length > 0) {
+        deskRequestsRef.current.set(selectedDesk.deskId, pendingRequests);
       } else {
-        deskQuestionsRef.current.delete(selectedDesk.deskId);
+        deskRequestsRef.current.delete(selectedDesk.deskId);
       }
     }
 
     // 새 데스크 선택
     setSelectedDesk(desk);
 
-    // 저장된 메시지와 질문 복원
+    // 저장된 메시지와 요청 복원
     const savedMessages = deskMessagesRef.current.get(desk.deskId) || [];
-    const savedQuestion = deskQuestionsRef.current.get(desk.deskId) || null;
+    const savedRequests = deskRequestsRef.current.get(desk.deskId) || [];
     setClaudeMessages(savedMessages);
-    setPendingQuestion(savedQuestion);
+    setPendingRequests(savedRequests);
     setCurrentTextBuffer('');
-    setClaudeState(savedQuestion ? 'question' : 'idle');
+    setClaudeState(savedRequests.length > 0 ? 'permission' : 'idle');
     setIsThinking(false);
     setWorkStartTime(null);
   };
@@ -491,27 +615,6 @@ function App() {
 
   return (
     <div className="app">
-      {/* 권한 요청 모달 */}
-      {pendingPermission && (
-        <div className="modal-overlay">
-          <div className="modal permission-modal">
-            <h2>Permission Request</h2>
-            <div className="permission-tool">
-              <span className="tool-name">{pendingPermission.toolName}</span>
-            </div>
-            <pre className="permission-input">
-              {JSON.stringify(pendingPermission.toolInput, null, 2)}
-            </pre>
-            <div className="modal-buttons">
-              <button className="btn btn-success" onClick={() => respondPermission('allow')}>Allow</button>
-              <button className="btn btn-warning" onClick={() => respondPermission('allowAll')}>Allow All</button>
-              <button className="btn btn-danger" onClick={() => respondPermission('deny')}>Deny</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-
       {/* 새 데스크 모달 */}
       {showNewDeskModal && (
         <div className="modal-overlay" onClick={() => setShowNewDeskModal(false)}>
@@ -674,32 +777,106 @@ function App() {
                 <div ref={claudeEndRef} />
               </div>
 
-              {/* 입력창 또는 선택지 */}
-              {pendingQuestion ? (
-                <div className="question-input-area">
-                  <div className="question-header">
-                    <span className="question-badge">{pendingQuestion.header || 'Question'}</span>
-                    <span className="question-text">{pendingQuestion.question}</span>
+              {/* 입력창 또는 요청 응답 영역 */}
+              {currentRequest ? (
+                <div className="request-input-area">
+                  {/* 권한 요청 */}
+                  {currentRequest.type === 'permission' && (
+                    <>
+                      <div className="request-header">
+                        <span className="request-badge permission">권한 요청</span>
+                        <span className="request-tool">{currentRequest.toolName}</span>
+                      </div>
+                      <div className="request-options">
+                        <button className="btn btn-allow" onClick={() => respondPermission('allow')}>
+                          승인
+                        </button>
+                        <button className="btn btn-deny" onClick={() => respondPermission('deny')}>
+                          거부
+                        </button>
+                      </div>
+                    </>
+                  )}
+
+                  {/* 질문 (멀티 선택지) */}
+                  {currentRequest.type === 'question' && (
+                    <>
+                      {currentRequest.questions.map((q, qIdx) => (
+                        <div key={qIdx} className="question-item">
+                          <div className="question-header">
+                            <span className="question-badge">{q.header || 'Question'}</span>
+                            <span className="question-text">{q.question}</span>
+                          </div>
+                          <div className="question-options">
+                            {q.options?.map((opt, oIdx) => (
+                              <button
+                                key={oIdx}
+                                className={`btn btn-option ${currentRequest.answers[qIdx] === opt ? 'selected' : ''}`}
+                                onClick={() => {
+                                  // 단일 질문이면 바로 제출, 멀티면 선택만
+                                  if (currentRequest.questions.length === 1) {
+                                    respondQuestionDirect(opt);
+                                  } else {
+                                    selectQuestionAnswer(qIdx, opt);
+                                  }
+                                }}
+                              >
+                                {opt}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                      {/* 멀티 질문일 때 제출 버튼 */}
+                      {currentRequest.questions.length > 1 && (
+                        <div className="question-submit">
+                          <button
+                            className="btn btn-primary"
+                            onClick={submitQuestionAnswers}
+                            disabled={Object.keys(currentRequest.answers).length < currentRequest.questions.length}
+                          >
+                            제출 ({Object.keys(currentRequest.answers).length}/{currentRequest.questions.length})
+                          </button>
+                        </div>
+                      )}
+                      {/* 커스텀 입력 (단일 질문일 때만) */}
+                      {currentRequest.questions.length === 1 && (
+                        <div className="question-custom">
+                          <input
+                            type="text"
+                            className="question-custom-input"
+                            placeholder="Or type custom answer..."
+                            onKeyPress={(e) => {
+                              if (e.key === 'Enter' && e.target.value.trim()) {
+                                respondQuestionDirect(e.target.value.trim());
+                                e.target.value = '';
+                              }
+                            }}
+                          />
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {/* 대기 중인 요청 개수 표시 */}
+                  {pendingRequests.length > 1 && (
+                    <div className="pending-count">+{pendingRequests.length - 1} more</div>
+                  )}
+                </div>
+              ) : selectedDesk?.canResume && !selectedDesk?.hasActiveSession ? (
+                // 세션 재개 선택지
+                <div className="request-input-area">
+                  <div className="request-header">
+                    <span className="request-badge session">세션 복구</span>
+                    <span className="request-tool">이전 세션이 있습니다</span>
                   </div>
-                  <div className="question-options">
-                    {pendingQuestion.options?.map((opt, i) => (
-                      <button key={i} className="btn btn-option" onClick={() => respondQuestion(opt)}>
-                        {opt}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="question-custom">
-                    <input
-                      type="text"
-                      className="question-custom-input"
-                      placeholder="Or type custom answer..."
-                      onKeyPress={(e) => {
-                        if (e.key === 'Enter' && e.target.value.trim()) {
-                          respondQuestion(e.target.value.trim());
-                          e.target.value = '';
-                        }
-                      }}
-                    />
+                  <div className="request-options">
+                    <button className="btn btn-allow" onClick={() => sendClaudeControl('resume')}>
+                      이어서 작업
+                    </button>
+                    <button className="btn btn-secondary" onClick={() => sendClaudeControl('new_session')}>
+                      새로 시작
+                    </button>
                   </div>
                 </div>
               ) : (
@@ -836,6 +1013,31 @@ function ClaudeMessageBubble({ message }) {
         </div>
       </div>
     );
+  }
+
+  // 응답 기록 (권한/질문)
+  if (role === 'user' && type === 'response') {
+    if (message.responseType === 'permission') {
+      return (
+        <div className="claude-message user">
+          <div className="message-bubble response-bubble">
+            <span className="response-tool">{message.toolName}</span>
+            <span className={`response-decision ${message.decision === '승인됨' ? 'allowed' : 'denied'}`}>
+              ({message.decision})
+            </span>
+          </div>
+        </div>
+      );
+    }
+    if (message.responseType === 'question') {
+      return (
+        <div className="claude-message user">
+          <div className="message-bubble response-bubble">
+            <span className="response-answers">{message.answers?.join(', ')}</span>
+          </div>
+        </div>
+      );
+    }
   }
 
   if (role === 'user') {

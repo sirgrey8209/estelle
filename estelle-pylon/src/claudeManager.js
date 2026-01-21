@@ -31,6 +31,8 @@ class ClaudeManager {
     this.sessions = new Map();  // deskId -> { query, abortController, sessionId, state, partialText }
     this.pendingPermissions = new Map();
     this.pendingQuestions = new Map();
+    // Desktop 재연결 시 전송할 pending 이벤트 저장
+    this.pendingEvents = new Map();  // deskId -> { type, ... }
     this.logStream = null;
 
     // 로그 디렉토리 생성
@@ -211,11 +213,13 @@ class ClaudeManager {
 
             if (block.name === 'AskUserQuestion') {
               // 질문 이벤트
-              this.emitEvent(deskId, {
+              const askEvent = {
                 type: 'askQuestion',
                 questions: block.input.questions,
                 toolUseId: block.id
-              });
+              };
+              this.pendingEvents.set(deskId, askEvent);
+              this.emitEvent(deskId, askEvent);
             } else {
               // 도구 정보 이벤트
               this.emitEvent(deskId, {
@@ -402,15 +406,17 @@ class ClaudeManager {
     }
 
     return new Promise((resolve) => {
-      this.pendingPermissions.set(toolUseId, { resolve, toolName, input });
+      this.pendingPermissions.set(toolUseId, { resolve, toolName, input, deskId });
 
-      deskStore.updateDeskStatus(deskId, 'permission');
-      this.emitEvent(deskId, {
+      const permEvent = {
         type: 'permission_request',
         toolName,
         toolInput: input,
         toolUseId
-      });
+      };
+      this.pendingEvents.set(deskId, permEvent);
+      deskStore.updateDeskStatus(deskId, 'permission');
+      this.emitEvent(deskId, permEvent);
     });
   }
 
@@ -450,6 +456,29 @@ class ClaudeManager {
   }
 
   /**
+   * 세션 재개 - 저장된 sessionId로 연결만 복구
+   */
+  async resumeSession(deskId) {
+    const desk = deskStore.getDesk(deskId);
+    if (!desk?.claudeSessionId) {
+      console.log(`[ClaudeManager] No session to resume for desk: ${deskId}`);
+      this.emitEvent(deskId, { type: 'error', error: 'No session to resume' });
+      return;
+    }
+
+    console.log(`[ClaudeManager] Resuming session for desk: ${deskId}, sessionId: ${desk.claudeSessionId}`);
+
+    // 빈 메시지 없이 세션만 활성화 (다음 메시지에서 resume 사용)
+    // 실제로는 query를 보내지 않고, 다음 sendMessage에서 resume 옵션이 적용됨
+    this.emitEvent(deskId, {
+      type: 'init',
+      session_id: desk.claudeSessionId,
+      message: 'Session ready to resume'
+    });
+    this.emitEvent(deskId, { type: 'state', state: 'idle' });
+  }
+
+  /**
    * 권한 응답
    */
   respondPermission(deskId, toolUseId, decision) {
@@ -457,6 +486,7 @@ class ClaudeManager {
     if (pending) {
       console.log(`[ClaudeManager] Permission ${decision} for ${pending.toolName}`);
       this.pendingPermissions.delete(toolUseId);
+      this.pendingEvents.delete(deskId);
       this.log(deskId, 'input', { type: 'permission_response', toolUseId, decision });
 
       if (decision === 'allow' || decision === 'allowAll') {
@@ -489,6 +519,7 @@ class ClaudeManager {
     if (pending) {
       console.log(`[ClaudeManager] Question answer: ${answer} (id: ${foundId})`);
       this.pendingQuestions.delete(foundId);
+      this.pendingEvents.delete(deskId);
       this.log(deskId, 'input', { type: 'question_response', toolUseId: foundId, answer });
 
       const updatedInput = {
@@ -497,6 +528,38 @@ class ClaudeManager {
       };
       pending.resolve({ behavior: 'allow', updatedInput });
     }
+  }
+
+  /**
+   * 특정 데스크의 pending 이벤트 가져오기
+   */
+  getPendingEvent(deskId) {
+    return this.pendingEvents.get(deskId) || null;
+  }
+
+  /**
+   * 모든 pending 이벤트 가져오기
+   */
+  getAllPendingEvents() {
+    const result = [];
+    for (const [deskId, event] of this.pendingEvents) {
+      result.push({ deskId, event });
+    }
+    return result;
+  }
+
+  /**
+   * 특정 데스크에 활성 세션이 있는지 확인
+   */
+  hasActiveSession(deskId) {
+    return this.sessions.has(deskId);
+  }
+
+  /**
+   * 모든 활성 세션 ID 목록
+   */
+  getActiveSessionDeskIds() {
+    return Array.from(this.sessions.keys());
   }
 
   /**
