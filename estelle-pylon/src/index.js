@@ -42,6 +42,8 @@ class Pylon {
     this.localServer = null;
     this.claudeManager = null;
     this.fileSimulator = null;
+    // 데스크별 시청자 추적: Map<deskId, Set<clientDeviceId>>
+    this.deskViewers = new Map();
   }
 
   log(message) {
@@ -85,6 +87,7 @@ class Pylon {
 
     process.on('SIGINT', () => {
       this.log('Shutting down...');
+      messageStore.saveAll();
       this.claudeManager?.cleanup();
       this.ws?.close();
       this.localServer?.stop();
@@ -243,6 +246,14 @@ class Pylon {
       return;
     }
 
+    if (type === 'client_disconnect') {
+      const clientId = payload?.deviceId;
+      if (clientId) {
+        this.unregisterDeskViewer(clientId);
+      }
+      return;
+    }
+
     if (type === 'error') {
       this.log(`Error from Relay: ${payload?.error}`);
       return;
@@ -294,6 +305,47 @@ class Pylon {
       return;
     }
 
+    if (type === 'desk_sync') {
+      const { deskId } = payload || {};
+      if (deskId) {
+        this.sendDeskSync(deskId, from);
+      }
+      return;
+    }
+
+    if (type === 'desk_select') {
+      const { deskId } = payload || {};
+      const clientId = from?.deviceId;
+      if (deskId && clientId) {
+        this.registerDeskViewer(clientId, deskId);
+      }
+      return;
+    }
+
+    // 히스토리 페이징 요청
+    if (type === 'history_request') {
+      const { deskId, limit = 50, offset = 0 } = payload || {};
+      if (deskId) {
+        const totalCount = messageStore.getCount(deskId);
+        const messages = messageStore.load(deskId, { limit, offset });
+        const hasMore = offset + messages.length < totalCount;
+
+        this.send({
+          type: 'history_result',
+          to: from?.deviceId,
+          payload: {
+            deviceId: this.deviceId,
+            deskId,
+            messages,
+            offset,
+            totalCount,
+            hasMore
+          }
+        });
+      }
+      return;
+    }
+
     // ===== Claude 관련 =====
 
     if (type === 'claude_send') {
@@ -301,6 +353,22 @@ class Pylon {
       if (deskId && userMessage) {
         // 사용자 메시지 저장
         messageStore.addUserMessage(deskId, userMessage);
+
+        // 사용자 메시지 브로드캐스트 (다른 클라이언트들에게 알림)
+        const userMessageEvent = {
+          type: 'claude_event',
+          payload: {
+            deskId,
+            event: {
+              type: 'userMessage',
+              content: userMessage,
+              timestamp: Date.now()
+            }
+          }
+        };
+        this.send({ ...userMessageEvent, broadcast: 'clients' });
+        this.localServer?.broadcast(userMessageEvent);
+
         this.claudeManager.sendMessage(deskId, userMessage);
       }
       return;
@@ -373,6 +441,61 @@ class Pylon {
         this.log(`Compact not implemented yet`);
         break;
     }
+  }
+
+  // ============ 데스크 시청자 관리 ============
+
+  /**
+   * 클라이언트를 특정 데스크의 시청자로 등록
+   * 한 클라이언트는 한 데스크만 시청 가능
+   */
+  registerDeskViewer(clientId, deskId) {
+    // 기존 시청 데스크에서 제거
+    for (const [existingDeskId, viewers] of this.deskViewers) {
+      if (viewers.has(clientId)) {
+        viewers.delete(clientId);
+        if (viewers.size === 0) {
+          this.deskViewers.delete(existingDeskId);
+          // 시청자가 없으면 메시지 캐시 해제
+          messageStore.unloadCache(existingDeskId);
+          this.log(`Unloaded message cache for desk ${existingDeskId} (no viewers)`);
+        }
+        break;
+      }
+    }
+
+    // 새 데스크에 등록
+    if (!this.deskViewers.has(deskId)) {
+      this.deskViewers.set(deskId, new Set());
+    }
+    this.deskViewers.get(deskId).add(clientId);
+    this.log(`Client ${clientId} now viewing desk ${deskId}`);
+  }
+
+  /**
+   * 클라이언트 연결 해제 시 모든 시청 정보 제거
+   */
+  unregisterDeskViewer(clientId) {
+    for (const [deskId, viewers] of this.deskViewers) {
+      if (viewers.has(clientId)) {
+        viewers.delete(clientId);
+        if (viewers.size === 0) {
+          this.deskViewers.delete(deskId);
+          // 시청자가 없으면 메시지 캐시 해제
+          messageStore.unloadCache(deskId);
+          this.log(`Unloaded message cache for desk ${deskId} (no viewers)`);
+        }
+        this.log(`Client ${clientId} removed from desk ${deskId} viewers`);
+        break;
+      }
+    }
+  }
+
+  /**
+   * 특정 데스크를 시청 중인 클라이언트 목록 반환
+   */
+  getDeskViewers(deskId) {
+    return this.deskViewers.get(deskId) || new Set();
   }
 
   // ============ 데스크 정보 전송 ============
@@ -482,6 +605,50 @@ class Pylon {
     });
   }
 
+  /**
+   * 특정 데스크의 메시지 히스토리 전송 (sync 요청 응답)
+   */
+  sendDeskSync(deskId, target) {
+    const messages = messageStore.load(deskId);
+    const desk = deskStore.getDesk(deskId);
+
+    const syncPayload = {
+      deviceId: this.deviceId,
+      deskId,
+      messages,
+      status: desk?.status || 'idle',
+      hasActiveSession: this.claudeManager.hasActiveSession(deskId),
+      canResume: !!desk?.claudeSessionId
+    };
+
+    // pending 이벤트도 포함
+    const pendingEvent = this.claudeManager.getPendingEvent(deskId);
+    if (pendingEvent) {
+      syncPayload.pendingEvent = pendingEvent;
+    }
+
+    if (target?.deviceId) {
+      // 요청자에게만 응답
+      this.send({
+        type: 'desk_sync_result',
+        payload: syncPayload,
+        to: { deviceId: target.deviceId, deviceType: target.deviceType }
+      });
+    } else {
+      // 브로드캐스트
+      this.send({
+        type: 'desk_sync_result',
+        payload: syncPayload,
+        broadcast: 'clients'
+      });
+    }
+
+    this.localServer?.broadcast({
+      type: 'desk_sync_result',
+      payload: syncPayload
+    });
+  }
+
   // ============ Claude 이벤트 전송 ============
 
   sendClaudeEvent(deskId, event) {
@@ -493,9 +660,20 @@ class Pylon {
       payload: { deskId, event }
     };
 
-    this.send({ ...message, broadcast: 'clients' });
+    // 해당 데스크를 시청 중인 클라이언트에게만 전송
+    const viewers = this.getDeskViewers(deskId);
+    if (viewers.size > 0) {
+      // 배열로 한 번에 전송
+      this.send({
+        ...message,
+        to: Array.from(viewers)
+      });
+    }
+
+    // 로컬 서버는 그대로 브로드캐스트 (보통 1개 연결)
     this.localServer?.broadcast(message);
 
+    // 상태 변경은 모든 클라이언트에게 브로드캐스트 (사이드바 표시용)
     if (event.type === 'state') {
       const desk = deskStore.getDesk(deskId);
       if (desk) {
