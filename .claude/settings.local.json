@@ -3,7 +3,8 @@
     "allow": [
       "Bash(powershell -Command \"Get-ChildItem ''C:\\\\WorkSpace\\\\SlackClaudeBot'' -File | Select-Object Name\")",
       "Bash(powershell -Command \"Get-ChildItem ''C:\\\\WorkSpace\\\\SlackClaudeBot\\\\src'' -File | Select-Object Name\")",
-      "Bash(pm2 restart:*)"
+      "Bash(pm2 restart:*)",
+      "WebSearch"
     ]
   }
 }
