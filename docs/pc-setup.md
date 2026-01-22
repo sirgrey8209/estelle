@@ -37,12 +37,29 @@ powershell -Command "iwr https://fly.io/install.ps1 -useb | iex"
 fly auth login
 ```
 
-### 5. Java 17 (Android 빌드용)
+### 5. Flutter SDK
+```powershell
+# 다운로드 (안정 버전)
+curl -L -o "$env:TEMP\flutter.zip" "https://storage.googleapis.com/flutter_infra_release/releases/stable/windows/flutter_windows_3.24.5-stable.zip"
+
+# C:\flutter에 압축 해제
+Expand-Archive "$env:TEMP\flutter.zip" -DestinationPath "C:\"
+
+# PATH에 추가 (영구)
+[Environment]::SetEnvironmentVariable('Path', $env:Path + ';C:\flutter\bin', 'User')
+
+# 설치 확인
+C:\flutter\bin\flutter.bat doctor
+```
+
+> **참고:** 최신 버전은 https://docs.flutter.dev/get-started/install/windows 에서 확인
+
+### 6. Java 17 (Android 빌드용)
 ```powershell
 winget install Microsoft.OpenJDK.17
 ```
 
-### 6. Android SDK (Android 빌드용)
+### 7. Android SDK (Android 빌드용)
 
 **방법 1: Android Studio 설치 (권장)**
 ```powershell
@@ -66,14 +83,14 @@ $env:JAVA_HOME = (Get-Item "C:\Program Files\Microsoft\jdk-17*").FullName
 & "$env:LOCALAPPDATA\Android\Sdk\cmdline-tools\latest\bin\sdkmanager.bat" --sdk_root="$env:LOCALAPPDATA\Android\Sdk" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 ```
 
-### 7. 환경변수 설정 (Android 빌드용)
+### 8. 환경변수 설정 (Android 빌드용)
 ```powershell
 # 영구 환경변수 설정
 [Environment]::SetEnvironmentVariable('JAVA_HOME', (Get-Item "C:\Program Files\Microsoft\jdk-17*").FullName, 'User')
 [Environment]::SetEnvironmentVariable('ANDROID_HOME', "$env:LOCALAPPDATA\Android\Sdk", 'User')
 ```
 
-### 8. SDK 라이선스 수락
+### 9. SDK 라이선스 수락
 ```powershell
 # licenses 폴더 생성
 mkdir "$env:LOCALAPPDATA\Android\Sdk\licenses" -Force
@@ -151,28 +168,34 @@ pm2 delete estelle-pylon   # 삭제
 
 ---
 
-## Desktop 설정
+## Flutter 앱 설정
+
+> estelle-desktop과 estelle-mobile이 estelle-app으로 통합됨
 
 ### 1. 의존성 설치
 ```powershell
-cd C:\workspace\estelle\estelle-desktop
-npm install
+cd C:\workspace\estelle\estelle-app
+C:\flutter\bin\flutter.bat pub get
 ```
 
-### 2. 실행
+### 2. 개발 서버 실행 (Web)
 ```powershell
-npm start
-```
+# 배치 파일로 실행 (Hot Reload 지원)
+estelle-app\run-dev.bat
 
-### 3. 시작 프로그램 등록 (선택)
-`shell:startup` 폴더에 바로가기 생성:
-```powershell
-$WshShell = New-Object -ComObject WScript.Shell
-$Shortcut = $WshShell.CreateShortcut("$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\Estelle Desktop.lnk")
-$Shortcut.TargetPath = "C:\workspace\estelle\estelle-desktop\start.cmd"
-$Shortcut.WorkingDirectory = "C:\workspace\estelle\estelle-desktop"
-$Shortcut.Save()
+# 또는 직접 실행
+cd C:\workspace\estelle\estelle-app
+C:\flutter\bin\flutter.bat run -d web-server --web-port=8080
 ```
+- Desktop 테스트: http://localhost:8080
+- Mobile 테스트: 브라우저 개발자도구 → 모바일 뷰포트
+
+### 3. Android APK 빌드
+```powershell
+cd C:\workspace\estelle\estelle-app
+C:\flutter\bin\flutter.bat build apk --release
+```
+출력: `build/app/outputs/flutter-apk/app-release.apk`
 
 ---
 
@@ -184,6 +207,7 @@ $Shortcut.Save()
 | Git | `C:\Program Files\Git\` |
 | GitHub CLI | `C:\Program Files\GitHub CLI\` |
 | Fly CLI | `%USERPROFILE%\.fly\bin\fly.exe` |
+| Flutter | `C:\flutter\` |
 | Java 17 | `C:\Program Files\Microsoft\jdk-17.*` |
 | Android SDK | `%LOCALAPPDATA%\Android\Sdk` |
 
@@ -235,31 +259,25 @@ PowerShell에서 전체 경로 사용:
 
 ## Android 빌드 설정
 
-### Keystore 파일
-**파일:** `estelle-release.keystore` (리포 루트, gitignore됨)
-- 새 PC 세팅 시 기존 PC에서 이 파일을 복사
-- 비밀번호는 `keystore-info.txt` 참조 (gitignore됨)
-
-### local.properties 설정
-`estelle-mobile/local.properties` 파일 생성 (gitignore됨):
-```properties
-sdk.dir=C:/Users/사용자명/AppData/Local/Android/Sdk
-KEYSTORE_FILE=C:/WorkSpace/estelle/estelle-release.keystore
-KEYSTORE_PASSWORD=비밀번호
-KEY_ALIAS=estelle
-KEY_PASSWORD=비밀번호
-```
-
-> **참고:** `sdk.dir`과 `KEYSTORE_FILE`은 해당 PC의 실제 경로로 설정
-
-### 빌드 테스트
+### Flutter APK 빌드
 ```powershell
-cd C:\WorkSpace\estelle\estelle-mobile
-.\build-release.cmd
-# 또는
-.\gradlew.bat assembleRelease --no-daemon
+cd C:\workspace\estelle\estelle-app
+C:\flutter\bin\flutter.bat build apk --release
 ```
-APK 출력 위치: `app/build/outputs/apk/release/app-release.apk`
+APK 출력: `build/app/outputs/flutter-apk/app-release.apk`
+
+### Keystore 설정 (릴리스 서명용, 선택)
+**파일:** `estelle-app/android/app/estelle-release.keystore` (gitignore됨)
+
+`estelle-app/android/key.properties` 파일 생성:
+```properties
+storePassword=비밀번호
+keyPassword=비밀번호
+keyAlias=estelle
+storeFile=estelle-release.keystore
+```
+
+> **참고:** 현재는 디버그 서명으로 빌드 중
 
 ---
 
@@ -272,6 +290,7 @@ APK 출력 위치: `app/build/outputs/apk/release/app-release.apk`
 - [ ] Git 설치
 - [ ] GitHub CLI 설치 + 인증
 - [ ] Fly CLI 설치 + 인증
+- [ ] Flutter SDK 설치 (`C:\flutter`)
 
 **Android 빌드 환경**
 - [ ] Java 17 설치
@@ -283,10 +302,8 @@ APK 출력 위치: `app/build/outputs/apk/release/app-release.apk`
 - [ ] 리포지토리 클론
 - [ ] Pylon npm install + .env 설정
 - [ ] PM2 설치 + startup 등록
-- [ ] Desktop npm install
-- [ ] 시작 프로그램 등록 (선택)
+- [ ] Flutter 앱 flutter pub get
+- [ ] 개발 서버 테스트 (`run-dev.bat`)
 
 **Android 빌드 설정**
-- [ ] `estelle-release.keystore` 복사 (기존 PC에서)
-- [ ] `estelle-mobile/local.properties` 생성
-- [ ] 빌드 테스트 (`build-release.cmd`)
+- [ ] APK 빌드 테스트 (`flutter build apk --release`)
