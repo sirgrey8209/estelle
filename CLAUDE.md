@@ -20,10 +20,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Flutter 개발 테스트
 개발 시 테스트는 **web-server 모드**로 진행합니다.
+
+**포그라운드 실행 (Hot Reload 지원):**
 ```bash
-cd estelle-app
-C:\flutter\bin\flutter.bat run -d web-server --web-port=8080
+start "" "C:\workspace\estelle\estelle-app\run-dev.bat"
 ```
+- 새 터미널 창에서 실행됨
+- `r` 키: Hot Reload (소스 변경 반영)
+- `R` 키: Hot Restart (앱 상태 초기화)
+- `q` 키: 종료
+
+**백그라운드 실행:**
+```bash
+powershell -Command "Set-Location C:\workspace\estelle\estelle-app; C:\flutter\bin\flutter.bat run -d web-server --web-port=8080"
+```
+
 - Desktop 테스트: `http://localhost:8080/`
 - Mobile 테스트: 브라우저 개발자도구에서 모바일 뷰포트로 전환
 
