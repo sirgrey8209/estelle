@@ -628,13 +628,16 @@ class Pylon {
    * 특정 데스크의 메시지 히스토리 전송 (sync 요청 응답)
    */
   sendDeskSync(deskId, target) {
-    const messages = messageStore.load(deskId);
     const desk = deskStore.getDesk(deskId);
+    const totalCount = messageStore.getCount(deskId);
 
+    // 메시지는 history_request로 페이징해서 받도록 함
+    // 여기서는 상태 정보만 전송
     const syncPayload = {
       deviceId: this.deviceId,
       deskId,
-      messages,
+      messages: [],  // 빈 배열 - 앱에서 history_request로 받아야 함
+      totalCount,    // 전체 메시지 수
       status: desk?.status || 'idle',
       hasActiveSession: this.claudeManager.hasActiveSession(deskId),
       canResume: !!desk?.claudeSessionId

@@ -12,8 +12,34 @@ class PermissionRequestView extends StatelessWidget {
     required this.onRespond,
   });
 
+  String _formatToolInput() {
+    final input = request.toolInput;
+    if (input.isEmpty) return '';
+
+    // 주요 필드 추출
+    final command = input['command'] as String?;
+    final filePath = input['file_path'] as String?;
+    final pattern = input['pattern'] as String?;
+    final url = input['url'] as String?;
+
+    if (command != null) return command;
+    if (filePath != null) return filePath;
+    if (pattern != null) return pattern;
+    if (url != null) return url;
+
+    // 첫 번째 문자열 값 반환
+    for (final entry in input.entries) {
+      if (entry.value is String && (entry.value as String).isNotEmpty) {
+        return '${entry.key}: ${entry.value}';
+      }
+    }
+    return '';
+  }
+
   @override
   Widget build(BuildContext context) {
+    final details = _formatToolInput();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -49,6 +75,30 @@ class PermissionRequestView extends StatelessWidget {
             ),
           ],
         ),
+
+        // Details (command, file_path, etc.)
+        if (details.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: NordColors.nord0,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              details,
+              style: const TextStyle(
+                fontSize: 12,
+                fontFamily: 'monospace',
+                color: NordColors.nord4,
+              ),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+
         const SizedBox(height: 10),
 
         // Action buttons

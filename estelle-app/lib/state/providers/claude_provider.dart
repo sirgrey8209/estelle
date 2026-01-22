@@ -75,8 +75,10 @@ class ClaudeMessagesNotifier extends StateNotifier<List<ClaudeMessage>> {
   void _handleDeskSyncResult(Map<String, dynamic>? payload) {
     if (payload == null) return;
 
+    final deviceId = payload['deviceId'] as int?;
     final deskId = payload['deskId'] as String?;
     final messagesRaw = payload['messages'] as List<dynamic>?;
+    final totalCount = payload['totalCount'] as int? ?? 0;
     final pendingEvent = payload['pendingEvent'] as Map<String, dynamic>?;
 
     if (deskId == null) return;
@@ -84,11 +86,18 @@ class ClaudeMessagesNotifier extends StateNotifier<List<ClaudeMessage>> {
     final selectedDesk = _ref.read(selectedDeskProvider);
     if (selectedDesk?.deskId != deskId) return;
 
-    // 메시지 히스토리 복원
-    if (messagesRaw != null) {
+    // 메시지가 비어있고 totalCount > 0이면 history_request로 받아야 함
+    if ((messagesRaw == null || messagesRaw.isEmpty) && totalCount > 0 && deviceId != null) {
+      // 최근 50개만 요청
+      _relay.requestHistory(deviceId, deskId, limit: 50, offset: 0);
+      _ref.read(hasMoreHistoryProvider.notifier).state = totalCount > 50;
+      return;
+    }
+
+    // 메시지 히스토리 복원 (하위 호환성)
+    if (messagesRaw != null && messagesRaw.isNotEmpty) {
       final messages = _parseMessages(messagesRaw);
       state = messages;
-      // Set initial offset for pagination
       _ref.read(historyOffsetProvider.notifier).state = messages.length;
       _ref.read(hasMoreHistoryProvider.notifier).state = messages.length >= 50;
     }
@@ -337,7 +346,13 @@ class ClaudeMessagesNotifier extends StateNotifier<List<ClaudeMessage>> {
 
       case 'state':
         final stateValue = event['state'] as String? ?? 'idle';
-        _ref.read(claudeStateProvider.notifier).state = stateValue;
+        // pending 요청이 있으면 'permission' 상태 유지
+        final hasPending = _ref.read(pendingRequestsProvider).isNotEmpty;
+        if (hasPending && stateValue != 'permission') {
+          _ref.read(claudeStateProvider.notifier).state = 'permission';
+        } else {
+          _ref.read(claudeStateProvider.notifier).state = stateValue;
+        }
         if (stateValue == 'idle') {
           _flushTextBuffer();
           _ref.read(isThinkingProvider.notifier).state = false;
@@ -370,7 +385,9 @@ class ClaudeMessagesNotifier extends StateNotifier<List<ClaudeMessage>> {
       case 'error':
         _flushTextBuffer();
         final error = event['error'] as String? ?? 'Unknown error';
-        _ref.read(claudeStateProvider.notifier).state = 'idle';
+        // pending 요청이 있으면 'permission' 상태 유지
+        final hasPendingOnError = _ref.read(pendingRequestsProvider).isNotEmpty;
+        _ref.read(claudeStateProvider.notifier).state = hasPendingOnError ? 'permission' : 'idle';
         _ref.read(isThinkingProvider.notifier).state = false;
         state = [
           ...state,

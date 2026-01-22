@@ -83,12 +83,8 @@ class RequestBar extends ConsumerWidget {
       decision,
     );
 
-    // Remove from queue
+    // Remove from queue (상태는 Pylon 이벤트로 관리)
     ref.read(pendingRequestsProvider.notifier).removeFirst();
-    final remaining = ref.read(pendingRequestsProvider);
-    if (remaining.isEmpty) {
-      ref.read(claudeStateProvider.notifier).state = 'working';
-    }
   }
 
   void _respondQuestion(WidgetRef ref, QuestionRequest request, dynamic answer) {
@@ -108,11 +104,7 @@ class RequestBar extends ConsumerWidget {
       answer,
     );
 
-    // Remove from queue
+    // Remove from queue (상태는 Pylon 이벤트로 관리)
     ref.read(pendingRequestsProvider.notifier).removeFirst();
-    final remaining = ref.read(pendingRequestsProvider);
-    if (remaining.isEmpty) {
-      ref.read(claudeStateProvider.notifier).state = 'working';
-    }
   }
 }

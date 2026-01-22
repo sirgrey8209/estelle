@@ -20,6 +20,7 @@ class _MessageListState extends ConsumerState<MessageList> {
   final _scrollController = ScrollController();
   bool _isNearBottom = true;
   double? _scrollOffsetBeforePrepend;
+  int _lastMessageCount = 0;
 
   @override
   void initState() {
@@ -86,8 +87,12 @@ class _MessageListState extends ConsumerState<MessageList> {
       }
     });
 
-    // Auto scroll when messages change (only for new messages at bottom)
-    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+    // Auto scroll only when new messages are added (not on every rebuild)
+    final currentCount = messages.length + (textBuffer.isNotEmpty ? 1 : 0);
+    if (currentCount > _lastMessageCount) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+    }
+    _lastMessageCount = currentCount;
 
     if (messages.isEmpty && textBuffer.isEmpty) {
       return Container(
@@ -124,6 +129,7 @@ class _MessageListState extends ConsumerState<MessageList> {
       color: NordColors.nord0,
       child: ListView.builder(
         controller: _scrollController,
+        cacheExtent: 500, // Pre-render 500px above/below viewport
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         itemCount: (showLoadingIndicator ? 1 : 0) +
             messages.length +
@@ -162,19 +168,21 @@ class _MessageListState extends ConsumerState<MessageList> {
           // Messages
           if (msgIndex >= 0 && msgIndex < messages.length) {
             final message = messages[msgIndex];
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: switch (message) {
-                UserTextMessage msg => MessageBubble.user(content: msg.content),
-                AssistantTextMessage msg => MessageBubble.assistant(content: msg.content),
-                ToolCallMessage msg => ToolCard(message: msg),
-                ResultInfoMessage msg => ResultInfo(message: msg),
-                ErrorMessage msg => MessageBubble.error(error: msg.error),
-                UserResponseMessage msg => MessageBubble.response(
-                  responseType: msg.responseType,
-                  content: msg.content,
-                ),
-              },
+            return RepaintBoundary(
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: switch (message) {
+                  UserTextMessage msg => MessageBubble.user(content: msg.content),
+                  AssistantTextMessage msg => MessageBubble.assistant(content: msg.content),
+                  ToolCallMessage msg => ToolCard(message: msg),
+                  ResultInfoMessage msg => ResultInfo(message: msg),
+                  ErrorMessage msg => MessageBubble.error(error: msg.error),
+                  UserResponseMessage msg => MessageBubble.response(
+                    responseType: msg.responseType,
+                    content: msg.content,
+                  ),
+                },
+              ),
             );
           }
 

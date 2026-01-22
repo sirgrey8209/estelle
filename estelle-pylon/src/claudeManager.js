@@ -421,28 +421,48 @@ class ClaudeManager {
   }
 
   /**
-   * 실행 중지
+   * 실행 중지 (강제 종료)
+   * - 세션 유무와 관계없이 항상 idle 상태로 전환
+   * - abort 실패해도 세션 정리
    */
   stop(deskId) {
+    console.log(`[ClaudeManager] Force stopping desk: ${deskId}`);
+
     const session = this.sessions.get(deskId);
+
+    // 1. abort 시도 (실패해도 계속 진행)
     if (session?.abortController) {
-      console.log(`[ClaudeManager] Stopping desk: ${deskId}`);
-      session.abortController.abort();
-      this.sessions.delete(deskId);
-      deskStore.updateDeskStatus(deskId, 'idle');
-      this.emitEvent(deskId, { type: 'state', state: 'idle' });
+      try {
+        session.abortController.abort();
+        console.log(`[ClaudeManager] Abort signal sent`);
+      } catch (err) {
+        console.log(`[ClaudeManager] Abort failed: ${err.message}`);
+      }
     }
 
-    // 대기 중인 권한 요청 모두 거부
+    // 2. 세션 강제 삭제
+    this.sessions.delete(deskId);
+
+    // 3. 상태 강제 변경
+    deskStore.updateDeskStatus(deskId, 'idle');
+    this.emitEvent(deskId, { type: 'state', state: 'idle' });
+
+    // 4. 대기 중인 권한 요청 모두 거부
     for (const [id, pending] of this.pendingPermissions) {
-      pending.resolve({ behavior: 'deny', message: 'Stopped' });
+      try {
+        pending.resolve({ behavior: 'deny', message: 'Stopped' });
+      } catch (e) {}
     }
     this.pendingPermissions.clear();
 
     for (const [id, pending] of this.pendingQuestions) {
-      pending.resolve({ behavior: 'deny', message: 'Stopped' });
+      try {
+        pending.resolve({ behavior: 'deny', message: 'Stopped' });
+      } catch (e) {}
     }
     this.pendingQuestions.clear();
+
+    console.log(`[ClaudeManager] Desk ${deskId} force stopped`);
   }
 
   /**
