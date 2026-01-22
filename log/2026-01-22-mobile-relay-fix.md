@@ -1,6 +1,15 @@
 # 모바일 Relay 연결 수정 → Desktop 통합
 
-## 상태: TESTING
+## 상태: MIGRATED → estelle-app
+
+> ⚠️ **이 문서는 더 이상 유효하지 않습니다.**
+> estelle-mobile과 estelle-desktop은 estelle-app로 통합되었습니다.
+> Relay 통신 로직은 Flutter의 `relay_service.dart`에서 구현됨.
+> Flutter 마이그레이션 내용은 `log/2026-01-22-flutter-migration.md` 참조
+
+---
+
+## (아카이브) 이전 상태: TESTING
 
 ## 문제
 v1.0.m1에서 스와이프 UI는 구현되었으나 Relay 연결이 안 됨

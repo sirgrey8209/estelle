@@ -25,6 +25,7 @@ const DYNAMIC_DEVICE_ID_START = 100;
 
 // ============ 상태 저장소 ============
 const clients = new Map();  // clientId -> ClientInfo
+let nextClientId = DYNAMIC_DEVICE_ID_START;  // 앱 클라이언트용 ID 카운터
 
 // ============ 유틸리티 ============
 
@@ -244,39 +245,51 @@ function handleMessage(clientId, data) {
   if (type === 'auth') {
     let { deviceId, deviceType } = data.payload || {};
 
-    // deviceId 정규화 (문자열이면 숫자로)
-    if (typeof deviceId === 'string') {
-      const parsed = parseInt(deviceId, 10);
-      deviceId = isNaN(parsed) ? null : parsed;
-    }
-
-    if (deviceId === null || deviceId === undefined || !deviceType) {
-      sendTo(clientId, { type: 'auth_result', payload: { success: false, error: 'Missing deviceId or deviceType' } });
+    if (!deviceType) {
+      sendTo(clientId, { type: 'auth_result', payload: { success: false, error: 'Missing deviceType' } });
       return;
     }
 
-    const authResult = authenticateDevice(deviceId, deviceType, client.ip);
+    // pylon은 deviceId 필수, app은 자동 발급
+    if (deviceType === 'pylon') {
+      // deviceId 정규화 (문자열이면 숫자로)
+      if (typeof deviceId === 'string') {
+        const parsed = parseInt(deviceId, 10);
+        deviceId = isNaN(parsed) ? null : parsed;
+      }
 
-    if (authResult.success) {
-      client.deviceId = deviceId;
-      client.deviceType = deviceType;
-      client.authenticated = true;
+      if (deviceId === null || deviceId === undefined) {
+        sendTo(clientId, { type: 'auth_result', payload: { success: false, error: 'Missing deviceId for pylon' } });
+        return;
+      }
 
-      const info = getDeviceInfo(deviceId);
-      log(`Authenticated: ${info.name} (${deviceId}/${deviceType}) from ${client.ip}`);
-
-      sendTo(clientId, {
-        type: 'auth_result',
-        payload: {
-          success: true,
-          device: { deviceId, deviceType, name: info.name, icon: info.icon, role: info.role }
-        }
-      });
-      broadcastDeviceStatus();
+      const authResult = authenticateDevice(deviceId, deviceType, client.ip);
+      if (!authResult.success) {
+        log(`Auth failed: ${deviceId} from ${client.ip} - ${authResult.error}`);
+        sendTo(clientId, { type: 'auth_result', payload: { success: false, error: authResult.error } });
+        return;
+      }
     } else {
-      log(`Auth failed: ${deviceId} from ${client.ip} - ${authResult.error}`);
-      sendTo(clientId, { type: 'auth_result', payload: { success: false, error: authResult.error } });
+      // app 클라이언트: deviceId 자동 발급
+      deviceId = nextClientId++;
+      log(`Assigned deviceId ${deviceId} to ${deviceType} client`);
     }
+
+    client.deviceId = deviceId;
+    client.deviceType = deviceType;
+    client.authenticated = true;
+
+    const info = getDeviceInfo(deviceId);
+    log(`Authenticated: ${info.name} (${deviceId}/${deviceType}) from ${client.ip}`);
+
+    sendTo(clientId, {
+      type: 'auth_result',
+      payload: {
+        success: true,
+        device: { deviceId, deviceType, name: info.name, icon: info.icon, role: info.role }
+      }
+    });
+    broadcastDeviceStatus();
     return;
   }
 
@@ -324,23 +337,34 @@ function handleMessage(clientId, data) {
 
   // 1. to가 있으면 해당 대상으로 전달
   if (to) {
-    let { deviceId, deviceType } = to;
+    // 배열 지원: to: [105, 106] 또는 to: [{ deviceId: 105 }, { deviceId: 106 }]
+    const targets = Array.isArray(to) ? to : [to];
 
-    // deviceId 정규화
-    if (typeof deviceId === 'string') {
-      const parsed = parseInt(deviceId, 10);
-      deviceId = isNaN(parsed) ? null : parsed;
-    }
+    for (const target of targets) {
+      let deviceId, deviceType;
 
-    if (deviceId === null) {
-      sendTo(clientId, { type: 'error', payload: { error: 'Invalid deviceId in to' } });
-      return;
-    }
+      // 숫자만 오면 deviceId로 처리
+      if (typeof target === 'number') {
+        deviceId = target;
+        deviceType = null;
+      } else if (typeof target === 'object') {
+        deviceId = target.deviceId;
+        deviceType = target.deviceType;
+      } else {
+        continue;
+      }
 
-    const sent = sendToDevice(deviceId, deviceType, data);
-    if (!sent) {
-      const targetInfo = getDeviceInfo(deviceId);
-      sendTo(clientId, { type: 'error', payload: { error: `Target offline: ${targetInfo.name} (${deviceId}/${deviceType || '*'})` } });
+      // deviceId 정규화
+      if (typeof deviceId === 'string') {
+        const parsed = parseInt(deviceId, 10);
+        deviceId = isNaN(parsed) ? null : parsed;
+      }
+
+      if (deviceId === null) {
+        continue;
+      }
+
+      sendToDevice(deviceId, deviceType, data);
     }
     return;
   }
@@ -401,6 +425,7 @@ wss.on('connection', (ws, req) => {
   ws.on('close', () => {
     const client = clients.get(clientId);
     const deviceId = client?.deviceId;
+    const deviceType = client?.deviceType;
 
     clients.delete(clientId);
 
@@ -413,6 +438,23 @@ wss.on('connection', (ws, req) => {
 
     if (client?.authenticated) {
       broadcastDeviceStatus();
+
+      // 클라이언트(비-pylon) 연결 해제 시 pylon에 알림
+      if (deviceType !== 'pylon' && deviceId !== null) {
+        broadcastToType('pylon', {
+          type: 'client_disconnect',
+          payload: { deviceId, deviceType }
+        });
+
+        // 모든 앱 클라이언트가 연결 해제되면 ID 카운터 리셋
+        const hasAppClients = Array.from(clients.values()).some(
+          c => c.authenticated && c.deviceType !== 'pylon'
+        );
+        if (!hasAppClients) {
+          nextClientId = DYNAMIC_DEVICE_ID_START;
+          log(`All app clients disconnected, reset nextClientId to ${nextClientId}`);
+        }
+      }
     }
   });
 

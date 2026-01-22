@@ -1,6 +1,14 @@
 # Desktop UX 개선 작업
 
-## 진행 상태: Phase 4 완료
+## 진행 상태: MIGRATED → estelle-app
+
+> ⚠️ **이 문서는 더 이상 유효하지 않습니다.**
+> estelle-desktop은 estelle-app로 마이그레이션되었습니다.
+> Flutter 마이그레이션 내용은 `log/2026-01-22-flutter-migration.md` 참조
+
+---
+
+## (아카이브) Phase 4 완료
 
 ## 완료된 작업
 

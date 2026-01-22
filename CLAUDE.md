@@ -6,6 +6,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - 항상 경어체(존댓말)로 답변할 것
 
+## Flutter 클라이언트 (estelle-app)
+
+`estelle-app`는 Desktop과 Mobile을 통합한 단일 앱입니다.
+
+- **UI 작업 시 반드시 Desktop/Mobile 양쪽을 고려할 것**
+  - Desktop (>=600px): 사이드바 + 채팅 영역
+  - Mobile (<600px): PageView 스와이프 (데스크 목록 ↔ 채팅)
+- 반응형 분기: `lib/ui/layouts/responsive_layout.dart`
+- 레이아웃 파일:
+  - Desktop: `lib/ui/layouts/desktop_layout.dart`
+  - Mobile: `lib/ui/layouts/mobile_layout.dart`
+
+### Flutter 개발 테스트
+개발 시 테스트는 **web-server 모드**로 진행합니다.
+```bash
+cd estelle-app
+C:\flutter\bin\flutter.bat run -d web-server --web-port=8080
+```
+- Desktop 테스트: `http://localhost:8080/`
+- Mobile 테스트: 브라우저 개발자도구에서 모바일 뷰포트로 전환
+
 ## Shell 주의사항
 
 - Windows 환경에서 `&&` 명령어 체이닝이 동작하지 않음

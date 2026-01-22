@@ -1,84 +1,49 @@
-# 다음 작업 목록
+# 다음 작업: Pylon Desk 기능 구현
 
-## 완료된 작업
+## 현재 상태
+- 데스크 CRUD 기본 구현됨 (생성/삭제/이름변경)
+- deskStore.js에서 JSON 파일로 저장
+- Claude 세션은 deskId로 구분되지만 workingDir 미적용
 
-### 1. 통신 구조 정리
-- [x] deviceId를 string에서 int로 변경 (모든 컴포넌트)
-- [x] Relay를 순수 라우터로 리팩토링 (`to`, `broadcast` 필드 기반)
-- [x] Desktop - Relay 직접 연결 제거
-- [x] Desktop → Pylon (localhost:9000) 경유 통신으로 수정
-- [x] 문서 업데이트 (architecture.md, characters.md, setup-guide.md)
+## 구현 필요
 
-### 2. 로깅 시스템 구현 (완료 2026-01-21)
-- [x] `packetLogger.js` 생성 - JSON Lines 형식
-- [x] Relay 송수신 로깅
-- [x] Desktop 송수신 로깅
-- [x] FileSimulator 수신 로깅
-- 로그 파일: `logs/packets-YYYY-MM-DD.jsonl`
+### 1. workingDir 실제 적용
+- [ ] 데스크 생성 시 workingDir 검증
+- [ ] Claude 세션 시작 시 workingDir로 cwd 설정
+- [ ] 클라이언트에서 workingDir 선택 UI
 
-### 3. inbox 파일 입력 시뮬레이션 (완료 2026-01-21)
-- [x] `fileSimulator.js` - 이미 구현되어 있음
-- [x] `FILE_SIMULATOR=true` 기본 활성화
-- 경로: `debug/inbox/`, `debug/outbox/`, `debug/processed/`
+### 2. Claude 세션 격리
+- [ ] 데스크별 독립 세션 관리
+- [ ] 세션 상태 (active/idle/error) 추적
+- [ ] 세션 재시작/복구 로직
 
-### 4. ~~estelle-shared 정리/삭제~~ (완료)
-- Phase 2용 공유 타입/상수 정의됨 → 유지
+### 3. 데스크 상태 개선
+- [ ] 마지막 활동 시간 기록
+- [ ] 세션 통계 (토큰 사용량, 대화 수)
+- [ ] 데스크별 설정 (권한 모드 등)
 
-### 5. Desktop UX 개선 (완료 2026-01-21)
+## 참고
 
-#### 5.1 deskId 필터링 버그 수정
-- [x] `claude_event` 핸들러에 deskId 필터링 추가
-- [x] 다른 데스크의 이벤트는 별도 저장 (`deskMessagesRef`, `deskRequestsRef`)
-- 문제: 데스크 A를 보고 있을 때 데스크 B의 질문이 표시됨
-
-#### 5.2 멀티 선택지 지원
-- [x] Claude AskUserQuestion의 1~4개 질문 동시 처리
-- [x] 단일 질문: 선택 즉시 제출
-- [x] 멀티 질문: 모든 질문에 답변 후 제출 버튼
-- [x] 질문 간 답변 변경 가능
-
-#### 5.3 통합 요청 큐 시스템
-- [x] `pendingPermission` + `pendingQuestion` → `pendingRequests[]` 통합
-- [x] 권한 요청, 질문이 겹쳐도 순차 처리
-- [x] 대기 중인 요청 개수 표시 (`+N more`)
-
-#### 5.4 응답 메시지 기록
-- [x] 권한 응답: `[Bash] (승인됨)` 형태로 기록
-- [x] 질문 답변: 선택한 옵션 기록
-- [x] 메시지 버블 우측 정렬
-
-#### 5.5 세션 재개 기능
-- [x] Pylon: `hasActiveSession()`, `resumeSession()` 메서드 추가
-- [x] 데스크 상태에 `hasActiveSession`, `canResume` 플래그 추가
-- [x] Desktop: 하단 입력창에 "세션 복구" 선택지 표시
-  - "이어서 작업" → 기존 세션 재개 (다음 메시지에서 `resume` 옵션 사용)
-  - "새로 시작" → 새 세션 시작
-
----
-
-## 참고: 현재 통신 구조
-
-```
-Mobile → Relay → Pylon → Claude
-                  ↑
-Desktop ─────────┘ (localhost:9000)
+### 현재 deskStore 구조
+```javascript
+{
+  "deskId": "uuid",
+  "name": "작업명",
+  "workingDir": "C:\\path\\to\\project",
+  "isActive": true,
+  "claudeSessionId": "session-uuid",
+  "status": "idle"
+}
 ```
 
-- Desktop은 Relay에 직접 연결하지 않음
-- Desktop → Pylon → Relay 경유
-- Mobile은 Relay에 직접 연결
-
----
-
-## 버그 재현 플로우
-
+### Claude 세션 시작 흐름
 ```
-1. 버그 발생
-2. logs/packets-*.jsonl 에서 관련 패킷 확인
-3. 패킷을 debug/inbox/에 JSON 파일로 복사
-4. Pylon이 즉시 처리 → 재현 완료
+1. 클라이언트 → Pylon: claude_send { deskId, message }
+2. Pylon: claudeManager.sendMessage(deskId, message)
+3. claudeManager: 해당 deskId의 Claude 프로세스 시작/재사용
+4. Claude SDK → Pylon: 이벤트 스트림
+5. Pylon → 클라이언트: claude_event
 ```
 
 ---
-
-*Last updated: 2026-01-21 (Desktop UX 개선)*
+*Last updated: 2026-01-22*

@@ -19,16 +19,17 @@
 
 ### 현재 상태
 - `claudeManager.js` 구현됨
-- 기본 통신 구조 완성 (Mobile → Relay → Pylon → Claude)
-- Desktop UX 개선 완료 (2026-01-21)
-  - 멀티 선택지 지원
-  - 통합 요청 큐 시스템
-  - 응답 메시지 기록
-  - 세션 재개 기능
+- 기본 통신 구조 완성 (Client → Relay → Pylon → Claude)
+- **Flutter 마이그레이션 완료 (2026-01-22)**
+  - estelle-desktop + estelle-mobile → estelle-app 통합
+  - Windows / Android / Web 지원
+  - 반응형 UI (Desktop: 사이드바, Mobile: 스와이프)
+  - Riverpod 상태 관리
 
 ### TODO
 - [x] 현재 구현 상태 점검
 - [x] 누락된 기능 파악 (권한/질문 처리)
+- [x] Flutter 마이그레이션
 - [ ] 실제 사용 테스트 (Dogfooding 준비)
 
 ---
@@ -68,4 +69,14 @@
 
 ---
 
-*Last updated: 2026-01-21*
+## 기술 스택 (현재)
+
+| 컴포넌트 | 기술 |
+|---------|------|
+| Relay | Node.js + WebSocket |
+| Pylon | Node.js + Claude SDK |
+| Client | Flutter (Riverpod) |
+
+---
+
+*Last updated: 2026-01-22 (Flutter 마이그레이션 반영)*

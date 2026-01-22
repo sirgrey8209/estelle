@@ -31,15 +31,27 @@
 - `relay_version` 메시지로 현재 버전 확인 가능
 - 업데이트 시 모든 클라이언트에 `relay_restarting` 알림
 
-### Desktop (신규)
-- IPC 핸들러: `check-update`, `run-update`
-- git checkout → npm install → npm run build → 앱 재시작
-- preload.js에 `electronAPI.checkUpdate()`, `electronAPI.runUpdate()` 노출
+### Client - Flutter (신규)
 
-### Mobile (기존)
-- `UpdateChecker` 클래스로 구현
-- deploy.json에서 mobile 버전 확인
-- APK 다운로드 → FileProvider로 설치 Intent
+> ⚠️ estelle-desktop과 estelle-mobile이 estelle-app로 통합됨
+
+**Windows**:
+- 빌드: `flutter build windows`
+- 업데이트: deploy.json에서 버전 확인 → 릴리즈 다운로드 → 설치
+
+**Android**:
+- 빌드: `flutter build apk`
+- 업데이트: deploy.json에서 버전 확인 → APK 다운로드 → 설치 Intent
+
+**Web**:
+- 빌드: `flutter build web`
+- 배포: 정적 파일 서빙 (Vercel/Netlify 등)
+
+### (Deprecated) Desktop - Electron
+- estelle-app로 마이그레이션됨
+
+### (Deprecated) Mobile - Kotlin
+- estelle-app로 마이그레이션됨
 
 ## 메시지 타입
 
@@ -57,8 +69,28 @@
 | 컴포넌트 | 파일 | 변경 |
 |---------|------|------|
 | Relay | `src/index.js` | `checkAndUpdate()`, `handleRelayUpdate()`, `getLocalCommit()` 추가 |
-| Desktop | `electron/main.js` | `checkForUpdate()`, `runUpdate()` IPC 핸들러 추가 |
-| Desktop | `electron/preload.js` | `checkUpdate`, `runUpdate` API 노출 |
+| ~~Desktop~~ | ~~`electron/main.js`~~ | ~~→ estelle-app로 마이그레이션됨~~ |
+| Flutter | `lib/` | 통합 클라이언트 (Windows/Android/Web) |
+
+---
+
+## Flutter 빌드 명령어
+
+```bash
+# Windows
+cd estelle-app
+flutter build windows
+
+# Android APK
+flutter build apk
+
+# Web
+flutter build web
+
+# 개발 서버 (Web)
+flutter run -d web-server --web-port=8080
+```
 
 ---
 작성일: 2026-01-22
+수정일: 2026-01-22 (Flutter 마이그레이션 반영)

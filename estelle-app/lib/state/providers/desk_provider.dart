@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../data/models/desk_info.dart';
 import '../../data/services/relay_service.dart';
 import 'relay_provider.dart';
+import 'claude_provider.dart';
 
 const _lastDeskKey = 'estelle_last_desk';
 
@@ -28,6 +29,9 @@ class PylonDesksNotifier extends StateNotifier<Map<int, PylonInfo>> {
         break;
       case 'desk_status':
         _handleDeskStatus(payload);
+        break;
+      case 'desk_created':
+        _handleDeskCreated(payload);
         break;
     }
   }
@@ -91,6 +95,7 @@ class PylonDesksNotifier extends StateNotifier<Map<int, PylonInfo>> {
       );
       if (found.deskId.isNotEmpty) {
         _ref.read(selectedDeskProvider.notifier).select(found);
+        _ref.read(claudeMessagesProvider.notifier).onDeskSelected(null, found);
         _autoSelectDone = true;
         return;
       }
@@ -104,7 +109,9 @@ class PylonDesksNotifier extends StateNotifier<Map<int, PylonInfo>> {
       if (allDesks.isNotEmpty) {
         // deviceId 순으로 정렬 (회사=1이 먼저)
         allDesks.sort((a, b) => a.deviceId.compareTo(b.deviceId));
-        _ref.read(selectedDeskProvider.notifier).select(allDesks.first);
+        final firstDesk = allDesks.first;
+        _ref.read(selectedDeskProvider.notifier).select(firstDesk);
+        _ref.read(claudeMessagesProvider.notifier).onDeskSelected(null, firstDesk);
         _autoSelectDone = true;
       }
     }
@@ -162,6 +169,35 @@ class PylonDesksNotifier extends StateNotifier<Map<int, PylonInfo>> {
       ...state,
       deviceId: pylon.copyWith(desks: updatedDesks),
     };
+  }
+
+  void _handleDeskCreated(Map<String, dynamic>? payload) {
+    if (payload == null) return;
+
+    final deviceId = payload['deviceId'] as int?;
+    final deskData = payload['desk'] as Map<String, dynamic>?;
+    if (deviceId == null || deskData == null) return;
+
+    final pylon = state[deviceId];
+    if (pylon == null) return;
+
+    final newDesk = DeskInfo(
+      deviceId: deviceId,
+      deviceName: pylon.name,
+      deviceIcon: pylon.icon,
+      deskId: deskData['deskId'] as String? ?? '',
+      deskName: (deskData['name'] ?? deskData['deskName']) as String? ?? '',
+      workingDir: deskData['workingDir'] as String? ?? '',
+      status: deskData['status'] as String? ?? 'idle',
+      isActive: deskData['isActive'] as bool? ?? false,
+      canResume: deskData['canResume'] as bool? ?? false,
+      hasActiveSession: deskData['hasActiveSession'] as bool? ?? false,
+    );
+
+    // 새 데스크 바로 선택
+    _ref.read(selectedDeskProvider.notifier).select(newDesk);
+    _ref.read(claudeMessagesProvider.notifier).onDeskSelected(null, newDesk);
+    PylonDesksNotifier.saveLastDesk(deviceId, newDesk.deskId);
   }
 
   void requestDeskList() {

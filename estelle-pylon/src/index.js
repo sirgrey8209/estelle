@@ -282,8 +282,16 @@ class Pylon {
     if (type === 'desk_create') {
       const { name, workingDir } = payload || {};
       if (name) {
-        deskStore.createDesk(name, workingDir);
+        const newDesk = deskStore.createDesk(name, workingDir);
         this.broadcastDeskList();
+        // 생성 요청자에게 새 데스크 정보 전송
+        this.sendToClient(clientId, {
+          type: 'desk_created',
+          payload: {
+            deviceId: this.deviceId,
+            desk: newDesk,
+          },
+        });
       }
       return;
     }

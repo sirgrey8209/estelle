@@ -91,7 +91,7 @@ class _StatusIndicator extends StatelessWidget {
         return const Icon(Icons.close, size: 12, color: NordColors.nord11);
       case 'idle':
       default:
-        return const _StaticDot(color: NordColors.nord14); // 초록색
+        return const SizedBox(width: 8); // idle: 점 없음
     }
   }
 }

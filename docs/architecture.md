@@ -36,7 +36,13 @@ Estelle은 여러 PC와 모바일 기기에서 Claude Code를 원격으로 제�
    - 메시지 내용을 해석하지 않음
    - \`to\`, \`broadcast\` 필드만 보고 라우팅
 
-3. **로컬 통신 모드 (향후)**
+3. **Pylon이 Single Source of Truth**
+   - 채팅 메시지, 데스크 상태 등 모든 데이터는 Pylon이 관리
+   - 클라이언트(Desktop/Mobile)는 Pylon에서 오는 이벤트를 그대로 표시
+   - 메시지 전송 시: 클라이언트가 직접 UI에 추가하지 않고, Pylon의 \`userMessage\` 이벤트를 기다림
+   - 이유: 여러 창(Desktop 2개 등)에서 동일한 상태를 보장
+
+4. **로컬 통신 모드 (향후)**
    - Relay 장애 시 fallback으로 검토
    - Desktop → Pylon (localhost:9000) 직접 연결
    - 현재는 미구현
@@ -74,9 +80,19 @@ Estelle은 여러 PC와 모바일 기기에서 Claude Code를 원격으로 제�
 - Relay로부터 받은 메시지 중 자신에게 온 것만 처리
 - \`to.deviceId\`가 자신이면 → 로컬 처리
 
-### 3. Desktop (estelle-desktop)
+### 3. Client (estelle-app)
 
-**역할**: PC용 UI (Electron)
+**역할**: 통합 클라이언트 앱 (Flutter)
+
+**지원 플랫폼**:
+- Windows (Desktop)
+- Android (Mobile)
+- Web
+
+**기술 스택**:
+- Flutter + Dart
+- Riverpod (상태 관리)
+- web_socket_channel (WebSocket)
 
 **연결**:
 - Relay에 직접 연결 (\`wss://estelle-relay.fly.dev\`)
@@ -86,17 +102,11 @@ Estelle은 여러 PC와 모바일 기기에서 Claude Code를 원격으로 제�
 - 모든 Pylon의 데스크 목록 표시 (집/회사 등)
 - Claude 메시지 송수신
 - 권한 요청 응답
+- 데스크 생성/삭제/이름 변경
 
-### 4. Mobile (estelle-mobile)
-
-**역할**: Android 앱
-
-**연결**:
-- Relay에 직접 연결 (\`wss://estelle-relay.fly.dev\`)
-- 동적 deviceId 사용 (100+)
-
-**기능**:
-- Desktop과 동일
+**반응형 UI**:
+- Desktop (>=600px): 사이드바(260px) + 채팅 영역
+- Mobile (<600px): PageView 스와이프 (데스크 목록 ↔ 채팅)
 
 ---
 
@@ -217,27 +227,31 @@ estelle/
 │       ├── localServer.js
 │       ├── claudeManager.js
 │       └── deskStore.js
-├── estelle-desktop/     # PC UI (Electron + React)
-│   └── src/App.jsx
-├── estelle-mobile/      # Android 앱
-│   └── app/src/main/java/com/nexus/android/
-│       ├── RelayClient.kt
-│       └── MainViewModel.kt
+├── estelle-app/     # 통합 클라이언트 (Flutter)
+│   └── lib/
+│       ├── main.dart
+│       ├── app.dart
+│       ├── core/           # 상수, 테마, 유틸
+│       ├── data/           # 모델, 서비스
+│       ├── state/          # Riverpod providers
+│       └── ui/             # 레이아웃, 위젯
 ├── estelle-shared/      # 공유 타입/상수
 │   ├── index.js
 │   └── index.d.ts
 ├── docs/                # 프로젝트 문서
 │   ├── architecture.md
 │   ├── characters.md
-│   ├── pc-setup.md
-│   ├── pylon-commands.md
-│   └── plan-phase2.md
+│   └── ...
 ├── wip/                 # 진행 중인 작업
 │   └── *.md
 └── log/                 # 완료된 작업 로그
     └── YYYY-MM-DD-*.md
+
+# (Deprecated)
+├── estelle-desktop/     # → estelle-app로 마이그레이션됨
+└── estelle-mobile/      # → estelle-app로 마이그레이션됨
 \`\`\`
 
 ---
 
-*Last updated: 2026-01-22*
+*Last updated: 2026-01-22 (Flutter 통합 반영)*
