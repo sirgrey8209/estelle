@@ -4,7 +4,7 @@
  */
 
 import 'dotenv/config';
-import { execSync } from 'child_process';
+import { execSync, spawn } from 'child_process';
 import WebSocket from 'ws';
 import path from 'path';
 import https from 'https';
@@ -423,6 +423,17 @@ class Pylon {
 
     if (type === 'deploy_request') {
       this.handleRemoteDeploy(message);
+      return;
+    }
+
+    // 2단계 배포 시스템
+    if (type === 'deploy_prepare') {
+      this.handleDeployPrepare(message);
+      return;
+    }
+
+    if (type === 'deploy_go') {
+      this.handleDeployGo(message);
       return;
     }
 
@@ -856,6 +867,131 @@ class Pylon {
       this.log(`Deploy failed: ${err.message}`);
       ws.send(JSON.stringify({ type: 'deploy_result', success: false, message: err.message }));
     }
+  }
+
+  // ============ 2단계 배포 시스템 ============
+
+  /**
+   * 1단계: 배포 준비
+   * - git pull로 최신 코드 받기
+   * - relayDeploy가 true면 fly deploy 실행
+   * - 완료 후 deploy_ready 전송
+   */
+  async handleDeployPrepare(message) {
+    const { relayDeploy } = message.payload || {};
+    const from = message.from;
+
+    this.log(`Deploy prepare requested. relayDeploy: ${relayDeploy}`);
+
+    try {
+      // 1. git pull
+      this.log('Running git fetch && git pull...');
+      execSync('git fetch origin', { cwd: REPO_DIR, encoding: 'utf-8' });
+      execSync('git pull origin master', { cwd: REPO_DIR, encoding: 'utf-8' });
+      this.log('Git pull completed');
+
+      // 2. Relay 배포 (지정된 Pylon만)
+      if (relayDeploy) {
+        this.log('Deploying Relay to Fly.io...');
+        try {
+          const relayDir = path.join(REPO_DIR, 'estelle-relay');
+          execSync('fly deploy', { cwd: relayDir, encoding: 'utf-8', timeout: 300000 });
+          this.log('Relay deploy completed');
+        } catch (flyErr) {
+          this.log(`Relay deploy failed: ${flyErr.message}`);
+          // Relay 배포 실패해도 계속 진행 (Pylon은 업데이트 가능)
+        }
+      }
+
+      // 3. APK 빌드 (Relay 배포 담당 Pylon만)
+      if (relayDeploy) {
+        this.log('Building APK...');
+        try {
+          const appDir = path.join(REPO_DIR, 'estelle-app');
+          execSync('C:\\flutter\\bin\\flutter.bat build apk --release', {
+            cwd: appDir, encoding: 'utf-8', timeout: 300000
+          });
+          this.log('APK build completed');
+
+          // GitHub Release에 업로드
+          execSync('gh release upload deploy build/app/outputs/flutter-apk/app-release.apk --clobber', {
+            cwd: appDir, encoding: 'utf-8'
+          });
+          this.log('APK uploaded to GitHub Release');
+        } catch (apkErr) {
+          this.log(`APK build/upload failed: ${apkErr.message}`);
+        }
+      }
+
+      // 4. 준비 완료 응답
+      this.send({
+        type: 'deploy_ready',
+        payload: {
+          deviceId: this.deviceId,
+          success: true,
+          relayDeployed: relayDeploy || false
+        },
+        broadcast: 'all'
+      });
+
+      this.log('Deploy prepare completed, ready for deploy_go');
+
+    } catch (err) {
+      this.log(`Deploy prepare failed: ${err.message}`);
+      this.send({
+        type: 'deploy_ready',
+        payload: {
+          deviceId: this.deviceId,
+          success: false,
+          error: err.message
+        },
+        broadcast: 'all'
+      });
+    }
+  }
+
+  /**
+   * 2단계: 배포 실행
+   * - 자가패치 배치파일 실행 후 종료
+   * - pm2가 자동으로 재시작
+   */
+  handleDeployGo(message) {
+    this.log('Deploy go received, starting self-patch...');
+
+    // 연결 종료 예고
+    this.send({
+      type: 'deploy_restarting',
+      payload: { deviceId: this.deviceId },
+      broadcast: 'all'
+    });
+
+    // 배치파일 경로
+    const batchPath = path.join(REPO_DIR, 'estelle-pylon', 'self-patch.bat');
+
+    // 배치파일 생성 (동적으로)
+    const batchContent = `@echo off
+timeout /t 2 /nobreak > nul
+cd /d "${path.join(REPO_DIR, 'estelle-pylon')}"
+call npm install
+pm2 restart pylon
+`;
+    fs.writeFileSync(batchPath, batchContent, 'utf-8');
+    this.log(`Created self-patch.bat at ${batchPath}`);
+
+    // 배치파일을 detached로 실행하고 프로세스 종료
+    const child = spawn('cmd.exe', ['/c', batchPath], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true
+    });
+    child.unref();
+
+    this.log('Self-patch started, exiting...');
+
+    // 잠시 후 종료 (메시지 전송 완료 대기)
+    setTimeout(() => {
+      process.exit(0);
+    }, 500);
   }
 }
 

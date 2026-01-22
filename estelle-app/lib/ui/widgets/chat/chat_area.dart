@@ -8,6 +8,7 @@ import '../../../state/providers/relay_provider.dart';
 import 'message_list.dart';
 import 'input_bar.dart';
 import '../requests/request_bar.dart';
+import '../deploy/deploy_dialog.dart';
 
 class ChatArea extends ConsumerWidget {
   const ChatArea({super.key});
@@ -52,12 +53,15 @@ class _ChatHeader extends ConsumerWidget {
           // Left side: desk info
           Text(desk.deviceIcon, style: const TextStyle(fontSize: 18)),
           const SizedBox(width: 10),
-          Text(
-            desk.deskName,
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: NordColors.nord5,
+          Expanded(
+            child: Text(
+              desk.deskName,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: NordColors.nord5,
+              ),
+              overflow: TextOverflow.ellipsis,
             ),
           ),
           const SizedBox(width: 10),
@@ -65,22 +69,111 @@ class _ChatHeader extends ConsumerWidget {
 
           const Spacer(),
 
-          // Right side: controls
-          _ControlButton(
-            label: 'Stop',
-            onPressed: claudeState == 'working'
-                ? () {
-                    ref.read(relayServiceProvider).sendClaudeControl(
-                      desk.deviceId,
-                      desk.deskId,
-                      'stop',
-                    );
-                  }
-                : null,
+          // Right side: session menu button
+          _SessionMenuButton(desk: desk),
+        ],
+      ),
+    );
+  }
+}
+
+class _SessionMenuButton extends ConsumerWidget {
+  final DeskInfo desk;
+
+  const _SessionMenuButton({required this.desk});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return PopupMenuButton<String>(
+      icon: const Icon(Icons.more_vert, color: NordColors.nord5, size: 20),
+      color: NordColors.nord2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      onSelected: (value) => _handleMenuAction(context, ref, value),
+      itemBuilder: (context) => [
+        const PopupMenuItem(
+          value: 'new_session',
+          child: Row(
+            children: [
+              Icon(Icons.add_circle_outline, color: NordColors.nord5, size: 18),
+              SizedBox(width: 8),
+              Text('새 세션', style: TextStyle(color: NordColors.nord5)),
+            ],
           ),
-          const SizedBox(width: 8),
-          _ControlButton(
-            label: 'New Session',
+        ),
+        const PopupMenuItem(
+          value: 'compact',
+          child: Row(
+            children: [
+              Icon(Icons.compress, color: NordColors.nord5, size: 18),
+              SizedBox(width: 8),
+              Text('컴팩트', style: TextStyle(color: NordColors.nord5)),
+            ],
+          ),
+        ),
+        const PopupMenuDivider(),
+        const PopupMenuItem(
+          value: 'permission',
+          child: Row(
+            children: [
+              Icon(Icons.security, color: NordColors.nord5, size: 18),
+              SizedBox(width: 8),
+              Text('퍼미션 설정', style: TextStyle(color: NordColors.nord5)),
+            ],
+          ),
+        ),
+        const PopupMenuDivider(),
+        const PopupMenuItem(
+          value: 'deploy',
+          child: Row(
+            children: [
+              Icon(Icons.rocket_launch, color: NordColors.nord13, size: 18),
+              SizedBox(width: 8),
+              Text('배포', style: TextStyle(color: NordColors.nord13)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _handleMenuAction(BuildContext context, WidgetRef ref, String action) {
+    switch (action) {
+      case 'new_session':
+        _showNewSessionDialog(context, ref);
+        break;
+      case 'compact':
+        ref.read(relayServiceProvider).sendClaudeControl(
+          desk.deviceId,
+          desk.deskId,
+          'compact',
+        );
+        break;
+      case 'permission':
+        _showPermissionDialog(context, ref);
+        break;
+      case 'deploy':
+        _showDeployDialog(context, ref);
+        break;
+    }
+  }
+
+  void _showNewSessionDialog(BuildContext context, WidgetRef ref) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: NordColors.nord1,
+        title: const Text('새 세션', style: TextStyle(color: NordColors.nord5)),
+        content: const Text(
+          '현재 세션을 종료하고 새 세션을 시작할까요?\n기존 대화 내용은 삭제됩니다.',
+          style: TextStyle(color: NordColors.nord4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('취소', style: TextStyle(color: NordColors.nord4)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: NordColors.nord11),
             onPressed: () {
               ref.read(relayServiceProvider).sendClaudeControl(
                 desk.deviceId,
@@ -89,10 +182,27 @@ class _ChatHeader extends ConsumerWidget {
               );
               ref.read(claudeMessagesProvider.notifier).clearMessages();
               ref.read(claudeMessagesProvider.notifier).clearDeskCache(desk.deskId);
+              Navigator.pop(context);
             },
+            child: const Text('새 세션 시작'),
           ),
         ],
       ),
+    );
+  }
+
+  void _showPermissionDialog(BuildContext context, WidgetRef ref) {
+    // TODO: 퍼미션 설정 다이얼로그 구현
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('퍼미션 설정은 아직 준비 중입니다.')),
+    );
+  }
+
+  void _showDeployDialog(BuildContext context, WidgetRef ref) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const DeployDialog(),
     );
   }
 }
@@ -127,44 +237,6 @@ class _StateBadge extends StatelessWidget {
         style: TextStyle(
           fontSize: 12,
           color: textColor,
-        ),
-      ),
-    );
-  }
-}
-
-class _ControlButton extends StatelessWidget {
-  final String label;
-  final VoidCallback? onPressed;
-
-  const _ControlButton({
-    required this.label,
-    this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(4),
-        child: Opacity(
-          opacity: onPressed != null ? 1.0 : 0.5,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: NordColors.nord3,
-              borderRadius: BorderRadius.circular(4),
-            ),
-            child: Text(
-              label,
-              style: const TextStyle(
-                fontSize: 12,
-                color: NordColors.nord5,
-              ),
-            ),
-          ),
         ),
       ),
     );

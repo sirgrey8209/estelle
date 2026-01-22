@@ -257,6 +257,35 @@ class RelayService {
       },
     });
   }
+
+  // ============ Deploy ============
+
+  /// 배포 준비 요청 (모든 Pylon에 브로드캐스트)
+  /// [relayDeployDeviceId] - Relay 배포를 담당할 Pylon의 deviceId
+  void sendDeployPrepare(int relayDeployDeviceId) {
+    // Relay 배포 담당 Pylon에게
+    send({
+      'type': 'deploy_prepare',
+      'to': {'deviceId': relayDeployDeviceId, 'deviceType': 'pylon'},
+      'payload': {'relayDeploy': true},
+    });
+
+    // 나머지 Pylon들에게 (broadcast로 보내되 relayDeploy: false)
+    send({
+      'type': 'deploy_prepare',
+      'broadcast': 'pylons',
+      'payload': {'relayDeploy': false, 'excludeDeviceId': relayDeployDeviceId},
+    });
+  }
+
+  /// 배포 실행 요청 (모든 Pylon + 앱에 브로드캐스트)
+  void sendDeployGo() {
+    send({
+      'type': 'deploy_go',
+      'broadcast': 'all',
+      'payload': {},
+    });
+  }
 }
 
 // Singleton instance

@@ -220,6 +220,12 @@ final allDesksProvider = Provider<List<DeskInfo>>((ref) {
   return pylons.values.expand((p) => p.desks).toList();
 });
 
+/// All connected pylons
+final pylonListProvider = Provider<List<PylonInfo>>((ref) {
+  final pylons = ref.watch(pylonDesksProvider);
+  return pylons.values.toList()..sort((a, b) => a.deviceId.compareTo(b.deviceId));
+});
+
 /// Selected desk state
 class SelectedDeskNotifier extends StateNotifier<DeskInfo?> {
   SelectedDeskNotifier() : super(null);
