@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/constants/colors.dart';
-import '../../core/constants/relay_config.dart';
+import '../../core/constants/build_info.dart';
 import '../../data/models/desk_info.dart';
 import '../../state/providers/relay_provider.dart';
 import '../../state/providers/desk_provider.dart';
@@ -88,10 +88,21 @@ class _Header extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           Text(
-            'v${RelayConfig.appVersion}',
+            BuildInfo.version,
             style: TextStyle(
               fontSize: 12,
               color: NordColors.nord4.withOpacity(0.7),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            // buildTime에서 년도 제외 (MMDDHHmmss)
+            BuildInfo.buildTime.length >= 14
+                ? BuildInfo.buildTime.substring(4)
+                : BuildInfo.buildTime,
+            style: TextStyle(
+              fontSize: 10,
+              color: NordColors.nord4.withOpacity(0.5),
             ),
           ),
 

@@ -49,23 +49,26 @@ try {
         }
     }
 
+    # BuildTime 생성 (APK와 EXE가 동일한 값 사용)
+    $BuildTime = Get-Date -Format "yyyyMMddHHmmss"
+
     # 2. Build APK
     Invoke-Step "build-apk" {
-        $json = & "$ScriptDir\build-apk.ps1" | ConvertFrom-Json
+        $json = & "$ScriptDir\build-apk.ps1" -BuildTime $BuildTime -Version $Version | ConvertFrom-Json
         if (-not $json.success) { throw $json.message }
         return $json
     }
 
     # 3. Build EXE
     Invoke-Step "build-exe" {
-        $json = & "$ScriptDir\build-exe.ps1" | ConvertFrom-Json
+        $json = & "$ScriptDir\build-exe.ps1" -BuildTime $BuildTime -Version $Version | ConvertFrom-Json
         if (-not $json.success) { throw $json.message }
         return $json
     }
 
     # 4. Upload to GitHub Release
     Invoke-Step "upload" {
-        $json = & "$ScriptDir\upload-release.ps1" -Commit $commit -Version $Version | ConvertFrom-Json
+        $json = & "$ScriptDir\upload-release.ps1" -Commit $commit -Version $Version -BuildTime $BuildTime | ConvertFrom-Json
         if (-not $json.success) { throw $json.message }
         return $json
     }

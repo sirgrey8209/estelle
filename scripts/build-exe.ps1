@@ -1,10 +1,11 @@
 # build-exe.ps1 - Flutter Windows EXE 빌드
 #
-# 사용법: .\scripts\build-exe.ps1 [-BuildTime 20260123113000]
+# 사용법: .\scripts\build-exe.ps1 [-BuildTime 20260123113000] [-Version v0.1]
 # 결과: JSON { success, path, buildTime, message }
 
 param(
     [string]$BuildTime,
+    [string]$Version,
     [string]$RepoDir = (Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path))
 )
 
@@ -21,7 +22,12 @@ try {
     }
 
     # build_info.dart 생성
-    $buildInfoResult = & "$ScriptDir\generate-build-info.ps1" -BuildTime $BuildTime -RepoDir $RepoDir | ConvertFrom-Json
+    $buildInfoArgs = @{
+        BuildTime = $BuildTime
+        RepoDir = $RepoDir
+    }
+    if ($Version) { $buildInfoArgs.Version = $Version }
+    $buildInfoResult = & "$ScriptDir\generate-build-info.ps1" @buildInfoArgs | ConvertFrom-Json
     if (-not $buildInfoResult.success) {
         throw $buildInfoResult.message
     }
