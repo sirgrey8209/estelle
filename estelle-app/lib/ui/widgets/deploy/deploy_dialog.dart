@@ -403,7 +403,7 @@ class _DeployDialogState extends ConsumerState<DeployDialog> {
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: NordColors.nord11.withValues(alpha: 0.2),
+                  color: NordColors.nord11.withOpacity(0.2),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Text(
@@ -419,7 +419,7 @@ class _DeployDialogState extends ConsumerState<DeployDialog> {
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: NordColors.nord10.withValues(alpha: 0.2),
+                  color: NordColors.nord10.withOpacity(0.2),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: const Text(
