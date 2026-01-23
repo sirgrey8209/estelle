@@ -46,8 +46,8 @@ try {
         $stashId = $stashMessage
     }
 
-    # 5. checkout
-    git checkout $Commit 2>&1 | Out-Null
+    # 5. checkout (--quiet로 정보 메시지 억제)
+    git checkout $Commit --quiet 2>&1 | Out-Null
 
     @{
         success = $true
