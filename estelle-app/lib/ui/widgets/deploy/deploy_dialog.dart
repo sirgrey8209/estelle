@@ -135,11 +135,17 @@ class _DeployDialogState extends ConsumerState<DeployDialog> {
         _phase = DeployPhase.buildReady;
         _statusMessage = '빌드 완료 ✓';
 
-        // 이미 사전 승인된 경우 → preparing 단계로 자동 전환됨
-        // (Pylon에서 deploy_start를 바로 보내므로)
+        // 이미 사전 승인된 경우 → 다른 Pylon 체크
         if (_confirmed) {
-          _phase = DeployPhase.preparing;
-          _statusMessage = '다른 Pylon 준비 중...';
+          final pylons = ref.read(pylonListProvider);
+          if (pylons.length <= 1) {
+            // Pylon이 1대뿐이면 바로 ready
+            _phase = DeployPhase.ready;
+            _statusMessage = '준비 완료! GO 버튼을 눌러주세요.';
+          } else {
+            _phase = DeployPhase.preparing;
+            _statusMessage = '다른 Pylon 준비 중...';
+          }
         }
       } else {
         _phase = DeployPhase.error;
@@ -222,11 +228,18 @@ class _DeployDialogState extends ConsumerState<DeployDialog> {
       cancel: !_confirmed,
     );
 
-    // 빌드 완료 상태에서 승인하면 → preparing으로 전환됨 (Pylon에서 deploy_start)
+    // 빌드 완료 상태에서 승인하면 → 다른 Pylon 체크
     if (_confirmed && _phase == DeployPhase.buildReady) {
+      final pylons = ref.read(pylonListProvider);
       setState(() {
-        _phase = DeployPhase.preparing;
-        _statusMessage = '다른 Pylon 준비 중...';
+        if (pylons.length <= 1) {
+          // Pylon이 1대뿐이면 바로 ready
+          _phase = DeployPhase.ready;
+          _statusMessage = '준비 완료! GO 버튼을 눌러주세요.';
+        } else {
+          _phase = DeployPhase.preparing;
+          _statusMessage = '다른 Pylon 준비 중...';
+        }
       });
     }
   }
