@@ -6,6 +6,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - 항상 경어체(존댓말)로 답변할 것
 
+### 문서화
+처음 대화 시작할 때 docs\architecture.md 문서와 wip 문서 읽고 현재 상황 파악할 것.
+
+`docs/` : 프로젝트 관련 문서
+`wip/` : 현재 진행중인 작업에 대한 계획 및 진행상황
+`log/` : 완료된 작업에 대한 로그
+
+
+```
+[작업 시작] → wip/ 에 문서 작성
+     ↓
+[작업 완료] → log/ 로 이동 (날짜 prefix)
+```
+
+- **"하고 있는 일/해야 할 일"** 질문 시 → `wip/` 확인
+
+
 ## Flutter 클라이언트 (estelle-app)
 
 `estelle-app`는 Desktop과 Mobile을 통합한 단일 앱입니다.
@@ -45,19 +62,6 @@ powershell -Command "Set-Location C:\workspace\estelle\estelle-app; C:\flutter\b
 - `cd /d C:\path` 형식도 동작하지 않음 - 작업 디렉토리는 이미 프로젝트 루트로 설정되어 있음
 - 절대경로 사용 시 파일 수정이 실패하는 경우가 있음 - 실패 시 상대경로로 재시도할 것
 
-### 문서화
-`docs/` : 프로젝트 관련 문서
-`wip/` : 현재 진행중인 작업에 대한 계획 및 진행상황
-`log/` : 완료된 작업에 대한 로그
-
-
-```
-[작업 시작] → wip/ 에 문서 작성
-     ↓
-[작업 완료] → log/ 로 이동 (날짜 prefix)
-```
-
-- **"하고 있는 일/해야 할 일"** 질문 시 → `wip/` 확인
 
 ## 유틸리티 스크립트
 
