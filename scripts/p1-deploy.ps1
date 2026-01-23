@@ -1,7 +1,9 @@
 # p1-deploy.ps1 - P1 (주도 Pylon) 전체 배포
-# git sync → build APK → build EXE → upload → relay deploy
+# git sync → build APK → build EXE → upload → relay deploy → copy release
 #
-# 사용법: .\scripts\p1-deploy.ps1 [-SkipRelay]
+# 사용법: .\scripts\p1-deploy.ps1 [-Version v0.2] [-SkipRelay]
+#   -Version: 앱 버전 (생략시 deploy.json에서 가져옴)
+#   -SkipRelay: Relay 배포 생략
 # 결과: JSON { success, commit, version, steps, message }
 
 param(
