@@ -56,6 +56,9 @@ $commit = git rev-parse --short HEAD
 # git sync → build APK/EXE → upload → relay deploy → copy release
 .\scripts\p1-deploy.ps1
 
+# 버전 변경시
+.\scripts\p1-deploy.ps1 -Version "v0.2"
+
 # Relay 배포 제외
 .\scripts\p1-deploy.ps1 -SkipRelay
 ```
@@ -127,6 +130,7 @@ $commit = git rev-parse --short HEAD
 빌드 시 자동 생성됨:
 ```dart
 class BuildInfo {
+  static const String version = 'v0.2';
   static const String buildTime = '20260123210801';
   static const String commit = '87b1bed';
 }
