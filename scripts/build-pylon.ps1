@@ -13,7 +13,8 @@ $PylonDir = Join-Path $RepoDir "estelle-pylon"
 try {
     Push-Location $PylonDir
 
-    npm install 2>&1 | Out-Null
+    # npm ci: package-lock.json 수정 없이 설치 (p2-update 시 충돌 방지)
+    npm ci 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw "npm install failed"
     }
