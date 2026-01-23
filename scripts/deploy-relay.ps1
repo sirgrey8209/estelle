@@ -7,22 +7,28 @@ param(
     [string]$RepoDir = (Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path))
 )
 
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
 $FlyExe = Join-Path $env:USERPROFILE ".fly\bin\fly.exe"
 $RelayDir = Join-Path $RepoDir "estelle-relay"
 
 try {
     Push-Location $RelayDir
 
-    & $FlyExe deploy 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        throw "Fly deploy failed"
-    }
+    # fly deploy 실행 (출력은 stderr로도 나옴)
+    $process = Start-Process -FilePath $FlyExe -ArgumentList "deploy" -Wait -PassThru -NoNewWindow
 
-    @{
-        success = $true
-        message = "Relay deployed"
-    } | ConvertTo-Json
+    if ($process.ExitCode -eq 0) {
+        @{
+            success = $true
+            message = "Relay deployed"
+        } | ConvertTo-Json
+    } else {
+        @{
+            success = $false
+            message = "Fly deploy failed with exit code $($process.ExitCode)"
+        } | ConvertTo-Json
+        exit 1
+    }
 
 } catch {
     @{
