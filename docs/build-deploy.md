@@ -149,9 +149,10 @@ commit hash 대신 **BuildTime**으로 버전을 비교합니다.
 
 ### 버전 비교 로직
 ```
-로컬 BuildInfo.buildTime < 원격 deploy.json.buildTime
+로컬 BuildInfo.buildTime != 원격 deploy.json.buildTime
 → 업데이트 필요
 ```
+**참고**: 로컬이 배포보다 최신인 경우도 있으므로 `<` 대신 `!=` 사용
 
 ---
 
