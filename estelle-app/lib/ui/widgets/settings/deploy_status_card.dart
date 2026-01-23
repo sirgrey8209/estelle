@@ -176,16 +176,9 @@ class _BuildTasksStatus extends StatelessWidget {
             icon = Icons.sync;
           }
 
-          return Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, color: color, size: 12),
-              const SizedBox(width: 4),
-              Text(
-                e.key.toUpperCase(),
-                style: TextStyle(color: color, fontSize: 10),
-              ),
-            ],
+          return Tooltip(
+            message: e.key.toUpperCase(),
+            child: Icon(icon, color: color, size: 16),
           );
         }).toList(),
       ),

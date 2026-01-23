@@ -1049,10 +1049,10 @@ class Pylon {
   // ============ 배포 시스템 ============
 
   /**
-   * 배포 상태를 요청자에게 전송
+   * 배포 상태를 모든 앱에 브로드캐스트
    */
   sendDeployStatus() {
-    if (!this.deployState.active || !this.deployState.requesterId) return;
+    if (!this.deployState.active) return;
 
     const { tasks } = this.deployState;
     const statusParts = [];
@@ -1074,9 +1074,10 @@ class Pylon {
       }
     }
 
+    // 모든 앱에 브로드캐스트
     this.send({
       type: 'deploy_status',
-      to: this.deployState.requesterId,
+      broadcast: 'apps',
       payload: {
         deviceId: this.deviceId,
         tasks: { ...tasks },
@@ -1223,10 +1224,22 @@ class Pylon {
       this.sendDeployStatus();
       this.log('Pylon build completed');
 
-      // 5. 버전 읽기
-      const versionFile = path.join(REPO_DIR, 'version.json');
-      const versionJson = JSON.parse(fs.readFileSync(versionFile, 'utf-8'));
-      this.deployState.version = `${versionJson.relay}.${versionJson.pylon}.${versionJson.desktop}`;
+      // 5. GitHub에서 deploy.json 버전 가져오기
+      try {
+        const version = await new Promise((resolve) => {
+          exec('"C:\\Program Files\\GitHub CLI\\gh.exe" release download deploy -p "deploy.json" --repo sirgrey8209/estelle -O -',
+            { encoding: 'utf-8', timeout: 30000 }, (error, stdout) => {
+              if (error || !stdout) { resolve(null); return; }
+              try {
+                const parsed = JSON.parse(stdout);
+                resolve(parsed.version || null);
+              } catch { resolve(null); }
+            });
+        });
+        this.deployState.version = version;
+      } catch {
+        this.deployState.version = null;
+      }
 
       this.deployState.tasks.json = 'done';
       this.sendDeployStatus();

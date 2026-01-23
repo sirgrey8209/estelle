@@ -31,6 +31,12 @@ function Invoke-Step {
 }
 
 try {
+    # 0. GitHub에서 deploy.json 가져오기 (Version, BuildTime)
+    $GhExe = "C:\Program Files\GitHub CLI\gh.exe"
+    $deployInfo = & $GhExe release download deploy -p "deploy.json" --repo sirgrey8209/estelle -O - 2>$null | ConvertFrom-Json
+    $Version = $deployInfo.version
+    $BuildTime = $deployInfo.buildTime
+
     # 1. Git sync (stash + checkout)
     $gitResult = Invoke-Step "git-sync" {
         $json = & "$ScriptDir\git-sync-p2.ps1" -Commit $Commit | ConvertFrom-Json
@@ -46,9 +52,9 @@ try {
         return $json
     }
 
-    # 3. EXE build
+    # 3. EXE build (P1과 동일한 Version, BuildTime 사용)
     Invoke-Step "build-exe" {
-        $json = & "$ScriptDir\build-exe.ps1" | ConvertFrom-Json
+        $json = & "$ScriptDir\build-exe.ps1" -Version $Version -BuildTime $BuildTime | ConvertFrom-Json
         if (-not $json.success) { throw $json.message }
         return $json
     }
