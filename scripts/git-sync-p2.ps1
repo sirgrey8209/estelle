@@ -19,8 +19,8 @@ try {
     $stashId = $null
     $stashMessage = "estelle-deploy-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
 
-    # 1. git fetch
-    git fetch origin 2>&1 | Out-Null
+    # 1. git fetch (--quiet로 정보 메시지 억제)
+    git fetch origin --quiet 2>&1 | Out-Null
 
     # 2. uncommitted 변경사항 확인
     $status = git status --porcelain
@@ -33,21 +33,25 @@ try {
     # 4. stash 필요한 경우
     if ($hasLocalCommits) {
         # soft reset으로 커밋을 unstaged로 되돌림
-        git reset --soft origin/master 2>&1 | Out-Null
+        git reset --soft origin/master --quiet 2>&1 | Out-Null
 
         # 이제 모든 변경사항이 staged 상태
-        git stash push -m $stashMessage --include-untracked 2>&1 | Out-Null
+        git stash push -m $stashMessage --include-untracked --quiet 2>&1 | Out-Null
         $stashed = $true
         $stashId = $stashMessage
     } elseif ($hasUncommitted) {
         # uncommitted만 있는 경우
-        git stash push -m $stashMessage --include-untracked 2>&1 | Out-Null
+        git stash push -m $stashMessage --include-untracked --quiet 2>&1 | Out-Null
         $stashed = $true
         $stashId = $stashMessage
     }
 
     # 5. checkout (--quiet로 정보 메시지 억제)
     git checkout $Commit --quiet 2>&1 | Out-Null
+
+    # 6. master 브랜치를 해당 커밋으로 이동 후 checkout
+    git branch -f master $Commit 2>&1 | Out-Null
+    git checkout master --quiet 2>&1 | Out-Null
 
     @{
         success = $true

@@ -11,7 +11,7 @@ param(
 $ErrorActionPreference = "Stop"
 $AppDir = Join-Path $RepoDir "estelle-app"
 $ReleaseDir = Join-Path $AppDir "release"
-$ExeName = "estelle_app.exe"
+$ExeName = "estelle_flutter.exe"
 $ExePath = Join-Path $ReleaseDir $ExeName
 
 try {
@@ -21,7 +21,7 @@ try {
     }
 
     # 2. 실행 중인 프로세스 종료
-    $running = Get-Process -Name "estelle_app" -ErrorAction SilentlyContinue
+    $running = Get-Process -Name "estelle_flutter" -ErrorAction SilentlyContinue
     if ($running) {
         $running | Stop-Process -Force
         Start-Sleep -Milliseconds 500
