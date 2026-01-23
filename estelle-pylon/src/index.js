@@ -830,13 +830,12 @@ class Pylon {
       this.log(`Deployed commit: ${deployInfo.commit}`);
 
       if (localCommit !== deployInfo.commit) {
-        this.log('Update available, syncing...');
-        execSync('git fetch origin', { cwd: REPO_DIR, encoding: 'utf-8' });
-        execSync(`git checkout ${deployInfo.commit}`, { cwd: REPO_DIR, encoding: 'utf-8' });
+        this.log('Update available, running p2-update...');
 
-        const pylonDir = path.join(REPO_DIR, 'estelle-pylon');
-        this.log('Running npm install...');
-        execSync('npm install', { cwd: pylonDir, encoding: 'utf-8' });
+        const result = this.runScript('p2-update.ps1', `-Commit ${deployInfo.commit}`);
+        if (!result.success) {
+          throw new Error(result.message);
+        }
 
         this.log(`Updated to ${deployInfo.commit}, restarting...`);
         setTimeout(() => process.exit(0), 1000);
@@ -997,6 +996,16 @@ class Pylon {
   }
 
   /**
+   * PowerShell 스크립트 실행 헬퍼
+   */
+  runScript(scriptName, args = '') {
+    const scriptPath = path.join(REPO_DIR, 'scripts', scriptName);
+    const cmd = `powershell -ExecutionPolicy Bypass -File "${scriptPath}" ${args}`;
+    const result = execSync(cmd, { encoding: 'utf-8', timeout: 600000 });
+    return JSON.parse(result);
+  }
+
+  /**
    * 1단계: 배포 준비 (빌드만, 업로드/배포 X)
    */
   async handleDeployPrepare(message) {
@@ -1012,97 +1021,69 @@ class Pylon {
     this.deployState.relayDeploy = relayDeploy || false;
 
     try {
-      // 1. Git pull
+      // 1. Git sync (P1)
       this.deployState.tasks.git = 'running';
       this.sendDeployStatus();
 
-      this.log('Running git fetch && git pull...');
-      execSync('git fetch origin', { cwd: REPO_DIR, encoding: 'utf-8' });
-      execSync('git pull origin master', { cwd: REPO_DIR, encoding: 'utf-8' });
+      this.log('Running git-sync-p1...');
+      const gitResult = this.runScript('git-sync-p1.ps1');
+      if (!gitResult.success) throw new Error(gitResult.message);
 
       this.deployState.tasks.git = 'done';
+      this.deployState.commitHash = gitResult.commit;
       this.sendDeployStatus();
-      this.log('Git pull completed');
+      this.log(`Git sync completed: ${gitResult.commit}`);
 
-      // 2. APK 빌드 (Relay 배포 담당 Pylon만, 업로드는 나중에)
+      // 2. APK 빌드 (Relay 배포 담당 Pylon만)
       if (relayDeploy) {
         this.deployState.tasks.apk = 'running';
         this.sendDeployStatus();
 
-        this.log('Building APK...');
-        const appDir = path.join(REPO_DIR, 'estelle-app');
-        execSync('C:\\flutter\\bin\\flutter.bat build apk --release', {
-          cwd: appDir, encoding: 'utf-8', timeout: 600000
-        });
+        this.log('Running build-apk...');
+        const apkResult = this.runScript('build-apk.ps1');
+        if (!apkResult.success) throw new Error(apkResult.message);
 
         this.deployState.tasks.apk = 'done';
         this.sendDeployStatus();
-        this.log('APK build completed');
+        this.log(`APK build completed: ${apkResult.size}`);
 
-        // 3. EXE 빌드 (Windows 데스크탑)
+        // 3. EXE 빌드
         this.deployState.tasks.exe = 'running';
         this.sendDeployStatus();
 
-        this.log('Building EXE...');
-        execSync('C:\\flutter\\bin\\flutter.bat build windows --release', {
-          cwd: appDir, encoding: 'utf-8', timeout: 600000
-        });
+        this.log('Running build-exe...');
+        const exeResult = this.runScript('build-exe.ps1');
+        if (!exeResult.success) throw new Error(exeResult.message);
 
         this.deployState.tasks.exe = 'done';
         this.sendDeployStatus();
         this.log('EXE build completed');
       } else {
-        this.deployState.tasks.apk = 'done'; // 해당 없음
-        this.deployState.tasks.exe = 'done'; // 해당 없음
+        this.deployState.tasks.apk = 'done';
+        this.deployState.tasks.exe = 'done';
       }
 
-      // 3. npm install (병렬로 진행 가능하지만 순차로 단순화)
+      // 4. Pylon 빌드 (npm install)
       this.deployState.tasks.npm = 'running';
       this.sendDeployStatus();
 
-      this.log('Running npm install...');
-      const pylonDir = path.join(REPO_DIR, 'estelle-pylon');
-      execSync('npm install', { cwd: pylonDir, encoding: 'utf-8' });
+      this.log('Running build-pylon...');
+      const pylonResult = this.runScript('build-pylon.ps1');
+      if (!pylonResult.success) throw new Error(pylonResult.message);
 
       this.deployState.tasks.npm = 'done';
       this.sendDeployStatus();
-      this.log('npm install completed');
+      this.log('Pylon build completed');
 
-      // 4. deploy.json 업데이트 (커밋 해시, 버전)
-      if (relayDeploy) {
-        this.deployState.tasks.json = 'running';
-        this.sendDeployStatus();
+      // 5. 버전 읽기
+      const versionFile = path.join(REPO_DIR, 'version.json');
+      const versionJson = JSON.parse(fs.readFileSync(versionFile, 'utf-8'));
+      this.deployState.version = `${versionJson.relay}.${versionJson.pylon}.${versionJson.desktop}`;
 
-        this.log('Updating deploy.json...');
-        const commitHash = execSync('git rev-parse --short HEAD', {
-          cwd: REPO_DIR, encoding: 'utf-8'
-        }).trim();
+      this.deployState.tasks.json = 'done';
+      this.sendDeployStatus();
 
-        // package.json에서 버전 읽기
-        const packageJson = JSON.parse(fs.readFileSync(
-          path.join(pylonDir, 'package.json'), 'utf-8'
-        ));
-        const version = packageJson.version || '1.0.0';
-
-        // deploy.json 생성 및 업로드
-        const deployJson = { commit: commitHash, version, timestamp: Date.now() };
-        const deployJsonPath = path.join(REPO_DIR, 'deploy.json');
-        fs.writeFileSync(deployJsonPath, JSON.stringify(deployJson, null, 2));
-
-        execSync(`gh release upload deploy "${deployJsonPath}" --clobber`, {
-          cwd: REPO_DIR, encoding: 'utf-8'
-        });
-
-        this.deployState.tasks.json = 'done';
-        this.deployState.commitHash = commitHash;
-        this.deployState.version = version;
-        this.sendDeployStatus();
-        this.log(`deploy.json updated: ${commitHash} v${version}`);
-      } else {
-        this.deployState.tasks.json = 'done';
-      }
-
-      // 5. 빌드 완료
+      // 6. 빌드 완료
       this.deployState.ready = true;
 
       this.send({
@@ -1189,7 +1170,7 @@ class Pylon {
 
   /**
    * deploy_start 수신 (다른 Pylon)
-   * - git pull + npm install 후 ack 전송
+   * - p2-update 스크립트 실행 후 ack 전송
    */
   async handleDeployStart(message) {
     const { commitHash, version, leadPylonId } = message.payload || {};
@@ -1203,17 +1184,15 @@ class Pylon {
     this.log(`Deploy start received. commitHash: ${commitHash}, leadPylon: ${leadPylonId}`);
 
     try {
-      // git pull
-      this.log('Running git fetch && git pull...');
-      execSync('git fetch origin', { cwd: REPO_DIR, encoding: 'utf-8' });
-      execSync(`git checkout ${commitHash}`, { cwd: REPO_DIR, encoding: 'utf-8' });
-      this.log('Git checkout completed');
+      // P2 업데이트 스크립트 실행
+      this.log('Running p2-update...');
+      const result = this.runScript('p2-update.ps1', `-Commit ${commitHash}`);
 
-      // npm install
-      this.log('Running npm install...');
-      const pylonDir = path.join(REPO_DIR, 'estelle-pylon');
-      execSync('npm install', { cwd: pylonDir, encoding: 'utf-8' });
-      this.log('npm install completed');
+      if (!result.success) {
+        throw new Error(result.message);
+      }
+
+      this.log(`P2 update completed. stashId: ${result.stashId || 'none'}`);
 
       // ack 전송
       this.send({
@@ -1270,79 +1249,70 @@ class Pylon {
 
   /**
    * 배포 실행 (GO 버튼)
-   * - APK 업로드, fly deploy, 재시작
+   * - upload-release, deploy-relay, copy-release, 재시작
    */
   async handleDeployGo(message) {
     this.log('Deploy go received');
 
     try {
-      // 주도 Pylon만 APK/EXE 업로드 및 fly deploy 수행
+      // 주도 Pylon만 업로드 및 fly deploy 수행
       if (this.deployState.relayDeploy) {
-        const appDir = path.join(REPO_DIR, 'estelle-app');
-
-        // APK 업로드
-        this.log('Uploading APK...');
+        // 1. GitHub Release 업로드 (deploy.json + APK)
+        this.log('Uploading to GitHub Release...');
         this.send({
           type: 'deploy_status',
           broadcast: 'all',
           payload: {
             deviceId: this.deviceId,
-            tasks: { apk: 'uploading', exe: 'waiting', relay: 'waiting' },
-            message: 'APK(업로드중) EXE(대기) Relay(대기)'
+            tasks: { upload: 'running', relay: 'waiting', copy: 'waiting' },
+            message: 'Upload(진행중) Relay(대기) Copy(대기)'
           }
         });
 
-        execSync('gh release upload deploy build/app/outputs/flutter-apk/app-release.apk --clobber', {
-          cwd: appDir, encoding: 'utf-8'
-        });
-        this.log('APK uploaded');
+        const uploadResult = this.runScript('upload-release.ps1',
+          `-Commit ${this.deployState.commitHash} -Version ${this.deployState.version}`);
+        if (!uploadResult.success) throw new Error(uploadResult.message);
+        this.log(`Uploaded: ${uploadResult.uploaded.join(', ')}`);
 
-        // EXE 업로드
-        this.log('Uploading EXE...');
-        this.send({
-          type: 'deploy_status',
-          broadcast: 'all',
-          payload: {
-            deviceId: this.deviceId,
-            tasks: { apk: 'done', exe: 'uploading', relay: 'waiting' },
-            message: 'APK(✓) EXE(업로드중) Relay(대기)'
-          }
-        });
-
-        // EXE 파일들을 ZIP으로 압축해서 업로드
-        const exeDir = path.join(appDir, 'build', 'windows', 'x64', 'runner', 'Release');
-        const zipPath = path.join(appDir, 'build', 'estelle-windows.zip');
-        execSync(`powershell -Command "Compress-Archive -Path '${exeDir}\\*' -DestinationPath '${zipPath}' -Force"`, {
-          cwd: appDir, encoding: 'utf-8'
-        });
-        execSync(`gh release upload deploy "${zipPath}" --clobber`, {
-          cwd: appDir, encoding: 'utf-8'
-        });
-        this.log('EXE uploaded');
-
-        // fly deploy
+        // 2. fly deploy
         this.log('Deploying Relay...');
         this.send({
           type: 'deploy_status',
           broadcast: 'all',
           payload: {
             deviceId: this.deviceId,
-            tasks: { apk: 'done', exe: 'done', relay: 'deploying' },
-            message: 'APK(✓) EXE(✓) Relay(배포중)'
+            tasks: { upload: 'done', relay: 'deploying', copy: 'waiting' },
+            message: 'Upload(✓) Relay(배포중) Copy(대기)'
           }
         });
 
-        const relayDir = path.join(REPO_DIR, 'estelle-relay');
-        execSync('fly deploy', { cwd: relayDir, encoding: 'utf-8', timeout: 300000 });
+        const relayResult = this.runScript('deploy-relay.ps1');
+        if (!relayResult.success) throw new Error(relayResult.message);
         this.log('Relay deployed');
+
+        // 3. EXE를 release 폴더로 복사
+        this.log('Copying to release folder...');
+        this.send({
+          type: 'deploy_status',
+          broadcast: 'all',
+          payload: {
+            deviceId: this.deviceId,
+            tasks: { upload: 'done', relay: 'done', copy: 'running' },
+            message: 'Upload(✓) Relay(✓) Copy(진행중)'
+          }
+        });
+
+        const copyResult = this.runScript('copy-release.ps1');
+        if (!copyResult.success) throw new Error(copyResult.message);
+        this.log(`Copied to: ${copyResult.destination}`);
 
         this.send({
           type: 'deploy_status',
           broadcast: 'all',
           payload: {
             deviceId: this.deviceId,
-            tasks: { apk: 'done', exe: 'done', relay: 'done' },
-            message: 'APK(✓) EXE(✓) Relay(✓)'
+            tasks: { upload: 'done', relay: 'done', copy: 'done' },
+            message: 'Upload(✓) Relay(✓) Copy(✓)'
           }
         });
       }
