@@ -856,20 +856,16 @@ class Pylon {
 
   fetchDeployJson() {
     return new Promise((resolve) => {
-      const url = `${DEPLOY_JSON_URL}?t=${Date.now()}`;
-      https.get(url, { headers: { 'User-Agent': 'Estelle-Pylon' } }, (res) => {
-        if (res.statusCode === 302 || res.statusCode === 301) {
-          https.get(res.headers.location, (res2) => {
-            let data = '';
-            res2.on('data', chunk => data += chunk);
-            res2.on('end', () => { try { resolve(JSON.parse(data)); } catch { resolve(null); } });
-          }).on('error', () => resolve(null));
-          return;
-        }
-        let data = '';
-        res.on('data', chunk => data += chunk);
-        res.on('end', () => { try { resolve(JSON.parse(data)); } catch { resolve(null); } });
-      }).on('error', () => resolve(null));
+      try {
+        // gh 명령어 사용 (private repo 지원)
+        const data = execSync(
+          'gh release download deploy --repo SirGrey8209/estelle -p "deploy.json" -O -',
+          { encoding: 'utf-8', windowsHide: true }
+        );
+        resolve(JSON.parse(data));
+      } catch {
+        resolve(null);
+      }
     });
   }
 
