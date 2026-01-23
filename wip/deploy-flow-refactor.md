@@ -8,13 +8,18 @@
 ### 구현됨 ✅
 - `deploy_prepare` → `deploy_ready` → `deploy_go` → `deploy_restarting` 흐름
 - 주도 Pylon 선택 UI
-- git pull, fly deploy, APK 빌드
+- git pull, fly deploy, APK 빌드, EXE 빌드
 - 자가패치 (self-patch.bat)
+- **진행상황 실시간 브로드캐스트** (비동기 스크립트 실행으로 구현)
+- **BuildTime 기반 버전 관리**
+- **build_info.dart 자동 생성**
+- **스크립트 독립 실행 지원** (-BuildTime 파라미터)
 
 ### 미구현 ❌
-- 진행상황 실시간 브로드캐스트
 - 다른 Pylon 자가배포
 - 핸드셰이크 (앱/다른 Pylon 준비 확인)
+- **앱 업데이트 체크 (deploy.json의 buildTime 비교)**
+- **Android APK 다운로드 및 설치 유도**
 
 ---
 
@@ -91,11 +96,80 @@
 
 ---
 
+## BuildTime 기반 버전 관리
+
+### 개요
+기존 commit hash 대신 **BuildTime (YYYYMMDDHHmmss)** 으로 버전 비교
+- 단조 증가하는 값이라 비교가 단순
+- 모든 플랫폼 (Desktop, Android, Web)에서 동일한 BuildTime 사용
+
+### 흐름
+```
+deploy_prepare 시작
+    ↓
+BuildTime 생성 (예: 20260123150000)
+    ↓
+generate-build-info.ps1 호출
+    ↓
+build_info.dart 생성
+    ↓
+APK/EXE 빌드 (동일한 BuildTime)
+    ↓
+upload-release.ps1 (deploy.json에 buildTime 포함)
+```
+
+### deploy.json 구조
+```json
+{
+  "commit": "abb91c0",
+  "version": "0.0.m1",
+  "buildTime": "20260123150000",
+  "deployedAt": "2026-01-23T06:00:00Z"
+}
+```
+
+### build_info.dart
+```dart
+class BuildInfo {
+  static const String buildTime = '20260123150000';
+  static const String commit = 'abb91c0';
+}
+```
+
+---
+
+## 빌드 스크립트 구조
+
+### scripts/
+```
+generate-build-info.ps1  # build_info.dart 생성
+build-apk.ps1            # APK 빌드 (generate-build-info 호출)
+build-exe.ps1            # EXE 빌드 (generate-build-info 호출)
+upload-release.ps1       # GitHub Release 업로드
+deploy-relay.ps1         # Fly.io 배포
+self-patch.bat           # pm2 재시작
+```
+
+### 독립 실행 지원
+모든 스크립트는 Pylon 없이도 독립 실행 가능:
+```powershell
+# BuildTime 자동 생성
+.\scripts\build-apk.ps1
+
+# 특정 BuildTime 지정
+.\scripts\build-apk.ps1 -BuildTime 20260123150000
+```
+
+---
+
 ## 수정 파일
 
 ### estelle-pylon/src/index.js
-- [ ] `broadcastDeployStatus(step, message)` 추가
-- [ ] `handleDeployPrepare()` 리팩토링 - status 브로드캐스트 추가
+- [x] `broadcastDeployStatus(step, message)` 추가
+- [x] `handleDeployPrepare()` 리팩토링 - status 브로드캐스트 추가
+- [x] `runScriptAsync()` 추가 - 비동기 스크립트 실행 (이벤트 루프 비차단)
+- [x] `windowsHide: true` - CMD 창 숨김
+- [x] BuildTime 생성 및 스크립트에 전달
 - [ ] 다른 Pylon도 git pull + npm install 수행하도록 수정
 
 ### estelle-app/lib/data/services/relay_service.dart
@@ -103,9 +177,13 @@
 - [x] `sendDeployGo()` - 구현됨
 
 ### estelle-app/lib/ui/widgets/deploy/deploy_dialog.dart
-- [ ] `deploy_status` 메시지 핸들링 추가
-- [ ] 각 Pylon별 진행상황 표시
-- [ ] 단계별 상세 메시지 표시
+- [x] `deploy_status` 메시지 핸들링 - 구현됨
+- [x] 각 Pylon별 진행상황 표시 - 구현됨
+- [x] 단계별 상세 메시지 표시 - 구현됨
+
+### estelle-app/lib/core/constants/build_info.dart
+- [x] 빌드 스크립트에서 자동 생성되는 파일
+- [ ] 앱 시작 시 deploy.json과 비교하여 업데이트 체크
 
 ---
 
@@ -150,4 +228,4 @@
 
 ---
 
-*Last updated: 2026-01-23*
+*Last updated: 2026-01-23 (BuildTime 기반 버전 관리, 비동기 스크립트 실행)*

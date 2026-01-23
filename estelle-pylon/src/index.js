@@ -1008,7 +1008,7 @@ class Pylon {
     return new Promise((resolve, reject) => {
       const scriptPath = path.join(REPO_DIR, 'scripts', scriptName);
       const cmd = `powershell -ExecutionPolicy Bypass -File "${scriptPath}" -RepoDir "${REPO_DIR}" ${args}`;
-      exec(cmd, { encoding: 'utf-8', timeout: 600000, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+      exec(cmd, { encoding: 'utf-8', timeout: 600000, maxBuffer: 10 * 1024 * 1024, windowsHide: true }, (error, stdout, stderr) => {
         if (error) {
           try {
             const result = JSON.parse(stdout);
@@ -1031,7 +1031,7 @@ class Pylon {
   runScript(scriptName, args = '') {
     const scriptPath = path.join(REPO_DIR, 'scripts', scriptName);
     const cmd = `powershell -ExecutionPolicy Bypass -File "${scriptPath}" -RepoDir "${REPO_DIR}" ${args}`;
-    const result = execSync(cmd, { encoding: 'utf-8', timeout: 600000 });
+    const result = execSync(cmd, { encoding: 'utf-8', timeout: 600000, windowsHide: true });
     return JSON.parse(result);
   }
 
@@ -1066,11 +1066,22 @@ class Pylon {
 
       // 2. APK 빌드 (Relay 배포 담당 Pylon만)
       if (relayDeploy) {
+        // buildTime 생성 (YYYYMMDDHHmmss)
+        const now = new Date();
+        const buildTime = now.getFullYear().toString() +
+          (now.getMonth() + 1).toString().padStart(2, '0') +
+          now.getDate().toString().padStart(2, '0') +
+          now.getHours().toString().padStart(2, '0') +
+          now.getMinutes().toString().padStart(2, '0') +
+          now.getSeconds().toString().padStart(2, '0');
+        this.deployState.buildTime = buildTime;
+        this.log(`Build time: ${buildTime}`);
+
         this.deployState.tasks.apk = 'running';
         this.sendDeployStatus();
 
         this.log('Running build-apk...');
-        const apkResult = await this.runScriptAsync('build-apk.ps1');
+        const apkResult = await this.runScriptAsync('build-apk.ps1', `-BuildTime ${buildTime}`);
         if (!apkResult.success) throw new Error(apkResult.message);
 
         this.deployState.tasks.apk = 'done';
@@ -1082,7 +1093,7 @@ class Pylon {
         this.sendDeployStatus();
 
         this.log('Running build-exe...');
-        const exeResult = await this.runScriptAsync('build-exe.ps1');
+        const exeResult = await this.runScriptAsync('build-exe.ps1', `-BuildTime ${buildTime}`);
         if (!exeResult.success) throw new Error(exeResult.message);
 
         this.deployState.tasks.exe = 'done';
@@ -1300,7 +1311,7 @@ class Pylon {
         });
 
         const uploadResult = await this.runScriptAsync('upload-release.ps1',
-          `-Commit ${this.deployState.commitHash} -Version ${this.deployState.version}`);
+          `-Commit ${this.deployState.commitHash} -Version ${this.deployState.version} -BuildTime ${this.deployState.buildTime}`);
         if (!uploadResult.success) throw new Error(uploadResult.message);
         this.log(`Uploaded: ${uploadResult.uploaded.join(', ')}`);
 

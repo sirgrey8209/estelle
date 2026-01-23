@@ -13,18 +13,36 @@ C:\flutter\bin\flutter.bat run -d web-server --web-port=8080
 - Mobile 테스트: 브라우저 개발자도구 → 모바일 뷰포트
 
 ### Android APK
+
+**스크립트 사용 (권장)**
+```powershell
+.\scripts\build-apk.ps1
+# 또는 BuildTime 지정
+.\scripts\build-apk.ps1 -BuildTime 20260123150000
+```
+출력: `estelle-app\build\app\outputs\flutter-apk\app-release.apk`
+
+**수동 빌드**
 ```bash
 cd estelle-app
 C:\flutter\bin\flutter.bat build apk --release
 ```
-출력: `build/app/outputs/flutter-apk/app-release.apk`
 
 ### Windows
+
+**스크립트 사용 (권장)**
+```powershell
+.\scripts\build-exe.ps1
+# 또는 BuildTime 지정
+.\scripts\build-exe.ps1 -BuildTime 20260123150000
+```
+출력: `estelle-app\build\windows\x64\runner\Release\`
+
+**수동 빌드**
 ```bash
 cd estelle-app
 C:\flutter\bin\flutter.bat build windows --release
 ```
-출력: `build/windows/x64/runner/Release/`
 
 ### Web
 ```bash
@@ -32,6 +50,47 @@ cd estelle-app
 C:\flutter\bin\flutter.bat build web --release
 ```
 출력: `build/web/`
+
+---
+
+## 빌드 스크립트
+
+### 스크립트 목록
+
+| 스크립트 | 설명 |
+|---------|------|
+| `generate-build-info.ps1` | build_info.dart 생성 |
+| `build-apk.ps1` | APK 빌드 (build_info 포함) |
+| `build-exe.ps1` | Windows EXE 빌드 (build_info 포함) |
+| `upload-release.ps1` | GitHub Release 업로드 |
+| `deploy-relay.ps1` | Fly.io 배포 |
+
+### BuildTime
+
+빌드 시점을 식별하는 타임스탬프 (YYYYMMDDHHmmss 형식)
+
+```
+20260123150000 = 2026년 01월 23일 15시 00분 00초
+```
+
+- 모든 플랫폼 빌드에 동일한 BuildTime 적용
+- `-BuildTime` 파라미터 생략 시 자동 생성
+- 앱 업데이트 체크에 사용 (단조 증가 비교)
+
+### build_info.dart
+
+빌드 스크립트가 자동 생성하는 파일:
+
+```dart
+// estelle-app/lib/core/constants/build_info.dart
+class BuildInfo {
+  static const String buildTime = '20260123150000';
+  static const String commit = 'abb91c0';
+}
+```
+
+- 앱 내에서 현재 버전 확인에 사용
+- deploy.json의 buildTime과 비교하여 업데이트 판단
 
 ---
 
@@ -45,77 +104,72 @@ cd estelle-app
 C:\flutter\bin\flutter.bat build apk --release
 ```
 
-2. **deploy.json 생성** (임시)
+2. **deploy.json 생성**
 ```json
 {
-  "commit": "<git commit hash>",
-  "deployedAt": "2026-01-22T12:00:00Z",
-  "relay": "0.0",
-  "pylon": "0.0",
-  "desktop": "0.0.0",
-  "mobile": "0.0.m1"
+  "commit": "abb91c0",
+  "version": "0.0.m1",
+  "buildTime": "20260123150000",
+  "deployedAt": "2026-01-23T06:00:00Z"
 }
 ```
 
-3. **GitHub Release 생성/업데이트**
+3. **GitHub Release에 파일 업로드**
 ```bash
-# 새 릴리스 생성
-gh release create deploy --title "Estelle Deploy" --notes "Deployed at YYYY-MM-DD" deploy.json app-release.apk
-
-# 기존 릴리스에 파일 업데이트
+gh release upload deploy deploy.json --clobber
 gh release upload deploy app-release.apk --clobber
 ```
 
 4. **로컬 deploy.json 삭제**
 
 ### 자동 배포 스크립트
-```bash
-powershell -File scripts\deploy.ps1
+```powershell
+.\scripts\upload-release.ps1 -Commit abc1234 -Version 1.0.0 -BuildTime 20260123150000
 ```
 
 스크립트 동작:
-1. version.json에서 버전 읽기
-2. GitHub Release의 deploy.json과 비교
-3. Relay 배포 (Fly.io)
-4. APK 빌드 및 업로드
-5. deploy.json 업데이트
+1. deploy.json 생성 (commit, version, buildTime, deployedAt)
+2. GitHub Release에 deploy.json 업로드
+3. APK가 있으면 APK도 업로드
+4. 로컬 deploy.json 삭제
 
 ---
 
 ## 버전 관리
 
-### version.json
-```json
-{
-  "relay": 0,
-  "pylon": 0,
-  "desktop": 0,
-  "mobile": 0
-}
+### BuildTime 기반 버전 비교
+commit hash 대신 **BuildTime**으로 버전을 비교합니다.
+
+| 필드 | 설명 | 예시 |
+|------|------|------|
+| `commit` | git commit hash | `abb91c0` |
+| `version` | 표시용 버전 | `0.0.m1` |
+| `buildTime` | 비교용 타임스탬프 | `20260123150000` |
+| `deployedAt` | 배포 시점 (UTC) | `2026-01-23T06:00:00Z` |
+
+### 버전 비교 로직
 ```
-
-### 버전 형식
-| 컴포넌트 | 형식 | 예시 |
-|---------|------|------|
-| Relay | `{relay}` | `0` |
-| Pylon | `{relay}.{pylon}` | `0.0` |
-| Desktop | `{relay}.{pylon}.{desktop}` | `0.0.0` |
-| Mobile | `{relay}.{pylon}.m{mobile}` | `0.0.m1` |
-
-같은 기본 버전으로 재배포 시 타임코드 추가: `0.0.m1-0122` (MMdd)
+로컬 BuildInfo.buildTime < 원격 deploy.json.buildTime
+→ 업데이트 필요
+```
 
 ---
 
 ## 자동 업데이트
 
 ### 클라이언트 (Flutter)
-- 앱 시작 시 GitHub Release의 deploy.json 확인
-- 버전이 다르면 업데이트 알림
+- 앱 시작 시 GitHub Release의 deploy.json 다운로드
+- `BuildInfo.buildTime`과 `deploy.json.buildTime` 비교
+- 원격이 더 크면 업데이트 알림 표시
+- **Desktop**: 릴리즈 폴더에서 EXE 다운로드 안내
+- **Android**: GitHub Release에서 APK 다운로드 안내
+- **Web**: 새로고침으로 자동 업데이트
 
 ### Pylon
 - 시작 시 `checkAndUpdate()` 호출
 - deploy.json의 commit과 로컬 commit 비교
 - 다르면 git pull → npm install → pm2 재시작
+- **주의**: commit이 undefined면 업데이트 스킵
 
 ### Relay
 - Fly.io 배포 시 자동 업데이트
@@ -143,4 +197,4 @@ Flutter Windows/Web 빌드 시 필요:
 
 ---
 
-*Last updated: 2026-01-22*
+*Last updated: 2026-01-23 (BuildTime 기반 버전 관리, 빌드 스크립트 문서화)*

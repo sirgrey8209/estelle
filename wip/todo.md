@@ -23,8 +23,12 @@
 ## 중기 과제 (Mid-term)
 
 ### Flutter 빌드/배포
-- [ ] Windows 빌드 자동화 (GitHub Actions)
-- [ ] Android APK 빌드 자동화
+- [x] Windows EXE 빌드 스크립트 (build-exe.ps1)
+- [x] Android APK 빌드 스크립트 (build-apk.ps1)
+- [x] build_info.dart 자동 생성 (generate-build-info.ps1)
+- [ ] 앱 업데이트 체크 구현 (BuildTime 비교)
+- [ ] Android APK 다운로드 및 설치 유도
+- [ ] GitHub Actions CI/CD
 - [ ] Web 배포 (Vercel/Netlify)
 
 ### Relay 강화
@@ -53,6 +57,15 @@
 ---
 
 ## 완료된 작업 ✅
+
+### 배포 시스템 개선 (2026-01-23)
+- [x] 비동기 스크립트 실행 (runScriptAsync) - 실시간 상태 동기화
+- [x] BuildTime 기반 버전 관리
+- [x] build_info.dart 자동 생성 스크립트
+- [x] 빌드 스크립트 독립 실행 지원 (-BuildTime 파라미터)
+- [x] deploy.json 구조 개선 (commit, version, buildTime, deployedAt)
+- [x] CMD 창 숨김 (windowsHide: true)
+- [x] undefined commit 업데이트 스킵 (파일 리버전 방지)
 
 ### UX 개선 및 배포 (2026-01-22)
 - [x] 초기 데스크 자동 선택 시 히스토리 로드 버그 수정
@@ -114,4 +127,4 @@
 
 ---
 
-*Last updated: 2026-01-22 (UX 개선 및 배포)*
+*Last updated: 2026-01-23 (배포 시스템 개선)*

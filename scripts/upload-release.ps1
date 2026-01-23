@@ -1,14 +1,16 @@
 # upload-release.ps1 - GitHub Release 업로드
-# deploy.json, APK, EXE ZIP 업로드
+# deploy.json, APK 업로드
 #
-# 사용법: .\scripts\upload-release.ps1 -Commit abc1234 -Version 1.0.0
-# 결과: JSON { success, commit, version, uploaded, message }
+# 사용법: .\scripts\upload-release.ps1 -Commit abc1234 -Version 1.0.0 -BuildTime 20260123113000
+# 결과: JSON { success, commit, version, buildTime, uploaded, message }
 
 param(
     [Parameter(Mandatory=$true)]
     [string]$Commit,
     [Parameter(Mandatory=$true)]
     [string]$Version,
+    [Parameter(Mandatory=$true)]
+    [string]$BuildTime,
     [string]$RepoDir = (Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path))
 )
 
@@ -25,6 +27,7 @@ try {
     $deployJson = @{
         commit = $Commit
         version = $Version
+        buildTime = $BuildTime
         deployedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
     }
     $deployJsonPath = Join-Path $RepoDir "deploy.json"
