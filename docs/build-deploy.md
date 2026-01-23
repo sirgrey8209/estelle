@@ -43,6 +43,18 @@ $buildTime = Get-Date -Format "yyyyMMddHHmmss"
 # 3. GitHub Release 업로드
 $commit = git rev-parse --short HEAD
 .\scripts\upload-release.ps1 -Commit $commit -Version "0.0.1" -BuildTime $buildTime
+
+# 4. 릴리즈 폴더로 복사 (Desktop용)
+.\scripts\copy-release.ps1
+```
+
+### 통합 배포 (P1)
+```powershell
+# git sync → build APK/EXE → upload → relay deploy → copy release
+.\scripts\p1-deploy.ps1
+
+# Relay 배포 제외
+.\scripts\p1-deploy.ps1 -SkipRelay
 ```
 
 ### Relay 배포 (Fly.io)
@@ -54,13 +66,44 @@ $commit = git rev-parse --short HEAD
 
 ## 4. 스크립트 레퍼런스
 
+### 빌드
 | 스크립트 | 설명 |
 |---------|------|
 | `build-apk.ps1` | APK 빌드 + build_info.dart 생성 |
 | `build-exe.ps1` | EXE 빌드 + build_info.dart 생성 |
+| `generate-build-info.ps1` | build_info.dart 생성 (빌드 스크립트가 자동 호출) |
+
+### 배포
+| 스크립트 | 설명 |
+|---------|------|
 | `upload-release.ps1` | deploy.json + APK를 GitHub Release에 업로드 |
 | `deploy-relay.ps1` | Relay를 Fly.io에 배포 |
-| `generate-build-info.ps1` | build_info.dart 생성 (빌드 스크립트가 자동 호출) |
+| `copy-release.ps1` | EXE를 release 폴더로 복사 (Desktop 배포용) |
+
+### 통합 배포
+| 스크립트 | 설명 |
+|---------|------|
+| `p1-deploy.ps1` | P1(주도 Pylon) 전체 배포: git→build→upload→relay→copy |
+| `p2-update.ps1` | P2(다른 Pylon) 업데이트: git sync→npm install→restore |
+
+### Git 동기화
+| 스크립트 | 설명 |
+|---------|------|
+| `git-sync-p1.ps1` | P1용: fetch → push (로컬이 최신이라고 가정) |
+| `git-sync-p2.ps1` | P2용: stash → checkout 특정 커밋 |
+| `git-restore-p2.ps1` | P2용: stash 복구 |
+
+### 설정/유틸
+| 스크립트 | 설명 |
+|---------|------|
+| `setup-pc.ps1` | 새 PC 초기 설정 (Node 확인, .env 생성) |
+| `install-pm2.ps1` | PM2 설치 및 Pylon 시작 등록 |
+| `build-pylon.ps1` | Pylon npm install |
+
+### 레거시 (미사용)
+| 스크립트 | 설명 |
+|---------|------|
+| `bump-version.ps1` | version.json 기반 버전 관리 (현재 BuildTime 사용) |
 
 ---
 
@@ -97,7 +140,7 @@ class BuildInfo {
 | 컴포넌트 | 방식 |
 |---------|------|
 | **Android** | GitHub Release에서 APK 다운로드 |
-| **Desktop** | 릴리즈 폴더에서 EXE 다운로드 |
+| **Desktop** | release 폴더에서 EXE 실행 |
 | **Web** | 새로고침 |
 | **Pylon** | 시작 시 commit 비교 → git pull → pm2 재시작 |
 | **Relay** | Fly.io 배포 시 자동 |
