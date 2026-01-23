@@ -34,12 +34,12 @@ Estelle은 여러 PC와 모바일 기기에서 Claude Code를 원격으로 제�
 
 2. **Relay는 순수 라우터**
    - 메시지 내용을 해석하지 않음
-   - \`to\`, \`broadcast\` 필드만 보고 라우팅
+   - `to`, `broadcast` 필드만 보고 라우팅
 
 3. **Pylon이 Single Source of Truth**
    - 채팅 메시지, 데스크 상태 등 모든 데이터는 Pylon이 관리
    - 클라이언트(Desktop/Mobile)는 Pylon에서 오는 이벤트를 그대로 표시
-   - 메시지 전송 시: 클라이언트가 직접 UI에 추가하지 않고, Pylon의 \`userMessage\` 이벤트를 기다림
+   - 메시지 전송 시: 클라이언트가 직접 UI에 추가하지 않고, Pylon의 `userMessage` 이벤트를 기다림
    - 이유: 여러 창(Desktop 2개 등)에서 동일한 상태를 보장
 
 4. **로컬 통신 모드 (향후)**
@@ -56,15 +56,15 @@ Estelle은 여러 PC와 모바일 기기에서 Claude Code를 원격으로 제�
 **역할**: 중앙 라우팅 서버
 
 **처리하는 메시지**:
-- \`auth\` - 인증
-- \`get_devices\` - 연결된 디바이스 목록
-- \`ping\` - 연결 확인
+- `auth` - 인증
+- `get_devices` - 연결된 디바이스 목록
+- `ping` - 연결 확인
 
 **라우팅 규칙**:
-- \`to: { deviceId, deviceType }\` → 해당 디바이스로 직접 전송
-- \`broadcast: 'all'\` → 모든 인증된 클라이언트
-- \`broadcast: 'pylons'\` → 모든 Pylon
-- \`broadcast: 'clients'\` → Pylon 제외 모든 클라이언트
+- `to: { deviceId, deviceType }` → 해당 디바이스로 직접 전송
+- `broadcast: 'all'` → 모든 인증된 클라이언트
+- `broadcast: 'pylons'` → 모든 Pylon
+- `broadcast: 'clients'` → Pylon 제외 모든 클라이언트
 - 기본: Pylon이 보내면 → 클라이언트들로, 클라이언트가 보내면 → Pylon들로
 
 ### 2. Pylon (estelle-pylon)
@@ -78,7 +78,7 @@ Estelle은 여러 PC와 모바일 기기에서 Claude Code를 원격으로 제�
 
 **메시지 처리**:
 - Relay로부터 받은 메시지 중 자신에게 온 것만 처리
-- \`to.deviceId\`가 자신이면 → 로컬 처리
+- `to.deviceId`가 자신이면 → 로컬 처리
 
 ### 3. Client (estelle-app)
 
@@ -95,7 +95,7 @@ Estelle은 여러 PC와 모바일 기기에서 Claude Code를 원격으로 제�
 - web_socket_channel (WebSocket)
 
 **연결**:
-- Relay에 직접 연결 (\`wss://estelle-relay.fly.dev\`)
+- Relay에 직접 연결 (`wss://estelle-relay.fly.dev`)
 - 동적 deviceId 사용 (100+)
 
 **기능**:
@@ -122,9 +122,9 @@ Estelle은 여러 PC와 모바일 기기에서 Claude Code를 원격으로 제�
 ### 동적 ID (100+)
 
 Desktop, Mobile 등 클라이언트가 접속 시 자동 할당:
-\`\`\`
+```
 deviceId = 100 + random(0-899)
-\`\`\`
+```
 
 ---
 
@@ -132,27 +132,27 @@ deviceId = 100 + random(0-899)
 
 ### 기본 구조
 
-\`\`\`json
+```json
 {
   "type": "메시지_타입",
   "to": { "deviceId": 1, "deviceType": "pylon" },  // 선택
   "broadcast": "clients",  // 선택
   "payload": { ... }
 }
-\`\`\`
+```
 
 ### 주요 메시지 타입
 
 | 타입 | 방향 | 설명 |
 |------|------|------|
-| \`auth\` | → Relay | 인증 요청 |
-| \`auth_result\` | ← Relay | 인증 결과 |
-| \`desk_list\` | → Pylon | 데스크 목록 요청 |
-| \`desk_list_result\` | ← Pylon | 데스크 목록 |
-| \`claude_send\` | → Pylon | Claude 메시지 전송 |
-| \`claude_event\` | ← Pylon | Claude 이벤트 (텍스트, 툴 등) |
-| \`claude_permission\` | → Pylon | 권한 응답 |
-| \`claude_control\` | → Pylon | 제어 (stop, new_session) |
+| `auth` | → Relay | 인증 요청 |
+| `auth_result` | ← Relay | 인증 결과 |
+| `desk_list` | → Pylon | 데스크 목록 요청 |
+| `desk_list_result` | ← Pylon | 데스크 목록 |
+| `claude_send` | → Pylon | Claude 메시지 전송 |
+| `claude_event` | ← Pylon | Claude 이벤트 (텍스트, 툴 등) |
+| `claude_permission` | → Pylon | 권한 응답 |
+| `claude_control` | → Pylon | 제어 (stop, new_session) |
 
 ### 데스크 목록 조회 플로우
 
@@ -177,35 +177,29 @@ deviceId = 100 + random(0-899)
 
 ### 로깅
 
-모든 패킷을 파일로 로깅:
+모든 패킷을 JSON Lines 형식으로 로깅:
 
-\`\`\`
-logs/
-  2024-01-21_14-30-00_recv_auth_result.json
-  2024-01-21_14-30-01_send_claude_send.json
-\`\`\`
+```
+estelle-pylon/logs/
+  packets-2026-01-21T00-58-02.jsonl
+  packets-2026-01-21T01-26-13.jsonl
+```
 
-로그 파일 형식:
-\`\`\`json
-{
-  "timestamp": "2024-01-21T14:30:00.123Z",
-  "direction": "recv",  // recv | send
-  "source": "relay",    // recv 시
-  "target": "relay",    // send 시
-  "type": "claude_send",
-  "data": { ... }
-}
-\`\`\`
+로그 파일 형식 (한 줄 = 하나의 패킷):
+```json
+{"ts":"2026-01-21T14:30:00.123Z","dir":"recv","type":"claude_send","data":{...}}
+{"ts":"2026-01-21T14:30:01.456Z","dir":"send","type":"claude_event","data":{...}}
+```
 
 ### 입력 시뮬레이션 (inbox)
 
 실행 중인 앱에서 inbox 폴더를 감시:
-\`\`\`
+```
 inbox/
   test_message.json  → 넣으면 즉시 처리됨
 processed/
   test_message.json  → 처리 후 이동
-\`\`\`
+```
 
 **재현 플로우**:
 1. 버그 발생
@@ -217,7 +211,7 @@ processed/
 
 ## 파일 구조
 
-\`\`\`
+```
 estelle/
 ├── estelle-relay/       # Relay 서버 (Fly.io)
 │   └── src/index.js
@@ -227,7 +221,7 @@ estelle/
 │       ├── localServer.js
 │       ├── claudeManager.js
 │       └── deskStore.js
-├── estelle-app/     # 통합 클라이언트 (Flutter)
+├── estelle-app/         # 통합 클라이언트 (Flutter)
 │   └── lib/
 │       ├── main.dart
 │       ├── app.dart
@@ -240,18 +234,15 @@ estelle/
 │   └── index.d.ts
 ├── docs/                # 프로젝트 문서
 │   ├── architecture.md
-│   ├── characters.md
-│   └── ...
+│   └── characters/      # 캐릭터 설정
+│       ├── characters.md
+│       └── persona-*.md
 ├── wip/                 # 진행 중인 작업
 │   └── *.md
 └── log/                 # 완료된 작업 로그
     └── YYYY-MM-DD-*.md
-
-# (Deprecated)
-├── estelle-desktop/     # → estelle-app로 마이그레이션됨
-└── estelle-mobile/      # → estelle-app로 마이그레이션됨
-\`\`\`
+```
 
 ---
 
-*Last updated: 2026-01-22 (Flutter 통합 반영)*
+*Last updated: 2026-01-23*

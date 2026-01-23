@@ -1,9 +1,9 @@
-/// 빌드 정보 (빌드 스크립트에서 자동 생성)
+﻿/// 鍮뚮뱶 ?뺣낫 (鍮뚮뱶 ?ㅽ겕由쏀듃?먯꽌 ?먮룞 ?앹꽦)
 class BuildInfo {
-  /// 빌드 타임스탬프 (YYYYMMDDHHmmss)
-  /// deploy_prepare 시점에 생성되어 모든 빌드에 동일하게 적용
-  static const String buildTime = '00000000000000';
+  /// 鍮뚮뱶 ??꾩뒪?ы봽 (YYYYMMDDHHmmss)
+  /// deploy_prepare ?쒖젏???앹꽦?섏뼱 紐⑤뱺 鍮뚮뱶???숈씪?섍쾶 ?곸슜
+  static const String buildTime = '20260123203856';
 
-  /// 빌드 시점의 git commit hash
-  static const String commit = 'dev';
+  /// 鍮뚮뱶 ?쒖젏??git commit hash
+  static const String commit = 'e675ec6';
 }
