@@ -87,7 +87,8 @@ $commit = git rev-parse --short HEAD
 | 스크립트 | 설명 |
 |---------|------|
 | `p1-deploy.ps1` | P1(주도 Pylon) 전체 배포: git→build→upload→relay→copy |
-| `p2-update.ps1` | P2(다른 Pylon) 업데이트: git sync→npm install→restore |
+| `p2-update.ps1` | P2(다른 Pylon) 업데이트: git→pylon→exe→copy→restart→restore |
+| `restart-app.ps1` | Desktop 앱 재시작 (기존 EXE 종료 + 새 EXE 실행) |
 
 ### Git 동기화
 | 스크립트 | 설명 |
@@ -135,6 +136,7 @@ class BuildInfo {
 
 ## 6. 자동 업데이트
 
+### P1 (주도 Pylon)
 | 컴포넌트 | 방식 |
 |---------|------|
 | **Android** | GitHub Release에서 APK 다운로드 |
@@ -142,6 +144,17 @@ class BuildInfo {
 | **Web** | 새로고침 |
 | **Pylon** | 시작 시 commit 비교 → git pull → pm2 재시작 |
 | **Relay** | Fly.io 배포 시 자동 |
+
+### P2 (다른 Pylon)
+Pylon 시작 시 또는 수동으로 `p2-update.ps1` 실행:
+```
+1. git-sync     : stash → checkout 배포 커밋
+2. build-pylon  : npm ci
+3. build-exe    : Flutter Windows 빌드
+4. copy-release : release 폴더로 복사
+5. restart-app  : 기존 EXE 종료 → 새 EXE 실행
+6. restore      : stash pop (있으면)
+```
 
 ---
 

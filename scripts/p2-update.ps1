@@ -1,5 +1,5 @@
 # p2-update.ps1 - P2 (다른 Pylon) 업데이트
-# git sync → npm install → restore
+# git sync → build pylon → build exe → copy release → restart app → restore
 #
 # 사용법: .\scripts\p2-update.ps1 -Commit abc1234
 # 결과: JSON { success, commit, steps, stashId, message }
@@ -39,14 +39,35 @@ try {
     }
     $stashId = $gitResult.stashId
 
-    # 2. Pylon build (npm install)
+    # 2. Pylon build (npm ci)
     Invoke-Step "build-pylon" {
         $json = & "$ScriptDir\build-pylon.ps1" | ConvertFrom-Json
         if (-not $json.success) { throw $json.message }
         return $json
     }
 
-    # 3. Restore stash (optional)
+    # 3. EXE build
+    Invoke-Step "build-exe" {
+        $json = & "$ScriptDir\build-exe.ps1" | ConvertFrom-Json
+        if (-not $json.success) { throw $json.message }
+        return $json
+    }
+
+    # 4. Copy to release folder
+    Invoke-Step "copy-release" {
+        $json = & "$ScriptDir\copy-release.ps1" | ConvertFrom-Json
+        if (-not $json.success) { throw $json.message }
+        return $json
+    }
+
+    # 5. Restart app
+    Invoke-Step "restart-app" {
+        $json = & "$ScriptDir\restart-app.ps1" | ConvertFrom-Json
+        if (-not $json.success) { throw $json.message }
+        return $json
+    }
+
+    # 6. Restore stash (optional)
     if ($stashId) {
         Invoke-Step "restore" {
             $json = & "$ScriptDir\git-restore-p2.ps1" -StashId $stashId | ConvertFrom-Json
