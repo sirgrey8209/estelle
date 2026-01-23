@@ -260,21 +260,28 @@ class RelayService {
 
   // ============ Deploy ============
 
-  /// 배포 준비 요청 (모든 Pylon에 브로드캐스트)
-  /// [relayDeployDeviceId] - Relay 배포를 담당할 Pylon의 deviceId
-  void sendDeployPrepare(int relayDeployDeviceId) {
-    // Relay 배포 담당 Pylon에게
+  /// 배포 준비 요청 (주도 Pylon에게만)
+  /// [pylonDeviceId] - 주도 Pylon의 deviceId
+  void sendDeployPrepare(int pylonDeviceId) {
     send({
       'type': 'deploy_prepare',
-      'to': {'deviceId': relayDeployDeviceId, 'deviceType': 'pylon'},
+      'to': {'deviceId': pylonDeviceId, 'deviceType': 'pylon'},
       'payload': {'relayDeploy': true},
     });
+  }
 
-    // 나머지 Pylon들에게 (broadcast로 보내되 relayDeploy: false)
+  /// 배포 확인 (사전 승인 / 취소 토글)
+  /// [pylonDeviceId] - 주도 Pylon의 deviceId
+  /// [preApproved] - 사전 승인 여부
+  /// [cancel] - 취소 여부
+  void sendDeployConfirm(int pylonDeviceId, {bool preApproved = false, bool cancel = false}) {
     send({
-      'type': 'deploy_prepare',
-      'broadcast': 'pylons',
-      'payload': {'relayDeploy': false, 'excludeDeviceId': relayDeployDeviceId},
+      'type': 'deploy_confirm',
+      'to': {'deviceId': pylonDeviceId, 'deviceType': 'pylon'},
+      'payload': {
+        'preApproved': preApproved,
+        'cancel': cancel,
+      },
     });
   }
 

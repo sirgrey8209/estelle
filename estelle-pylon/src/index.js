@@ -44,6 +44,24 @@ class Pylon {
     this.fileSimulator = null;
     // 데스크별 시청자 추적: Map<deskId, Set<clientDeviceId>>
     this.deskViewers = new Map();
+    // 배포 상태 관리
+    this.deployState = {
+      active: false,
+      requesterId: null,        // 배포 요청한 클라이언트 deviceId
+      relayDeploy: false,       // Relay 배포 담당 여부
+      preApproved: false,       // 사전 승인 여부
+      tasks: {                  // 병렬 빌드 작업 상태
+        git: 'waiting',         // waiting, running, done, error
+        apk: 'waiting',
+        exe: 'waiting',
+        npm: 'waiting',
+        json: 'waiting'
+      },
+      ready: false,             // 빌드 완료 여부
+      commitHash: null,
+      version: null,
+      pylonAcks: new Set()      // deploy_start_ack 받은 Pylon들
+    };
   }
 
   log(message) {
@@ -199,6 +217,35 @@ class Pylon {
       this.reconnectTimer = null;
       this.connectToRelay();
     }, RECONNECT_INTERVAL);
+  }
+
+  /**
+   * Relay 재연결 및 인증 완료까지 대기
+   * @param {number} timeout - 최대 대기 시간 (ms), 기본 60초
+   * @returns {Promise<void>}
+   */
+  waitForRelayReconnect(timeout = 60000) {
+    return new Promise((resolve, reject) => {
+      const startTime = Date.now();
+      const checkInterval = 500; // 0.5초마다 확인
+
+      const check = () => {
+        if (this.authenticated) {
+          resolve();
+          return;
+        }
+
+        if (Date.now() - startTime > timeout) {
+          reject(new Error('Relay reconnect timeout'));
+          return;
+        }
+
+        setTimeout(check, checkInterval);
+      };
+
+      // 첫 체크는 약간의 딜레이 후 시작 (Relay가 재시작할 시간)
+      setTimeout(check, 5000);
+    });
   }
 
   send(message) {
@@ -426,9 +473,24 @@ class Pylon {
       return;
     }
 
-    // 2단계 배포 시스템
+    // 새 배포 시스템
     if (type === 'deploy_prepare') {
       this.handleDeployPrepare(message);
+      return;
+    }
+
+    if (type === 'deploy_confirm') {
+      this.handleDeployConfirm(message);
+      return;
+    }
+
+    if (type === 'deploy_start') {
+      this.handleDeployStart(message);
+      return;
+    }
+
+    if (type === 'deploy_start_ack') {
+      this.handleDeployStartAck(message);
       return;
     }
 
@@ -872,13 +934,70 @@ class Pylon {
     }
   }
 
-  // ============ 2단계 배포 시스템 ============
+  // ============ 배포 시스템 ============
 
   /**
-   * 1단계: 배포 준비
-   * - git pull로 최신 코드 받기
-   * - relayDeploy가 true면 fly deploy 실행
-   * - 완료 후 deploy_ready 전송
+   * 배포 상태를 요청자에게 전송
+   */
+  sendDeployStatus() {
+    if (!this.deployState.active || !this.deployState.requesterId) return;
+
+    const { tasks } = this.deployState;
+    const statusParts = [];
+
+    const statusMap = {
+      'waiting': '대기',
+      'running': '진행중',
+      'done': '✓',
+      'error': '✗'
+    };
+
+    if (this.deployState.relayDeploy) {
+      statusParts.push(`Git(${statusMap[tasks.git] || tasks.git})`);
+      statusParts.push(`APK(${statusMap[tasks.apk] || tasks.apk})`);
+      statusParts.push(`EXE(${statusMap[tasks.exe] || tasks.exe})`);
+      statusParts.push(`NPM(${statusMap[tasks.npm] || tasks.npm})`);
+      if (tasks.json !== 'waiting') {
+        statusParts.push(`JSON(${statusMap[tasks.json] || tasks.json})`);
+      }
+    }
+
+    this.send({
+      type: 'deploy_status',
+      to: this.deployState.requesterId,
+      payload: {
+        deviceId: this.deviceId,
+        tasks: { ...tasks },
+        message: statusParts.join(' ')
+      }
+    });
+  }
+
+  /**
+   * 배포 상태 초기화
+   */
+  resetDeployState() {
+    this.deployState = {
+      active: false,
+      requesterId: null,
+      relayDeploy: false,
+      preApproved: false,
+      tasks: {
+        git: 'waiting',
+        apk: 'waiting',
+        exe: 'waiting',
+        npm: 'waiting',
+        json: 'waiting'
+      },
+      ready: false,
+      commitHash: null,
+      version: null,
+      pylonAcks: new Set()
+    };
+  }
+
+  /**
+   * 1단계: 배포 준비 (빌드만, 업로드/배포 X)
    */
   async handleDeployPrepare(message) {
     const { relayDeploy } = message.payload || {};
@@ -886,115 +1005,406 @@ class Pylon {
 
     this.log(`Deploy prepare requested. relayDeploy: ${relayDeploy}`);
 
+    // 배포 상태 초기화
+    this.resetDeployState();
+    this.deployState.active = true;
+    this.deployState.requesterId = from?.deviceId;
+    this.deployState.relayDeploy = relayDeploy || false;
+
     try {
-      // 1. git pull
+      // 1. Git pull
+      this.deployState.tasks.git = 'running';
+      this.sendDeployStatus();
+
       this.log('Running git fetch && git pull...');
       execSync('git fetch origin', { cwd: REPO_DIR, encoding: 'utf-8' });
       execSync('git pull origin master', { cwd: REPO_DIR, encoding: 'utf-8' });
+
+      this.deployState.tasks.git = 'done';
+      this.sendDeployStatus();
       this.log('Git pull completed');
 
-      // 2. Relay 배포 (지정된 Pylon만)
+      // 2. APK 빌드 (Relay 배포 담당 Pylon만, 업로드는 나중에)
       if (relayDeploy) {
-        this.log('Deploying Relay to Fly.io...');
-        try {
-          const relayDir = path.join(REPO_DIR, 'estelle-relay');
-          execSync('fly deploy', { cwd: relayDir, encoding: 'utf-8', timeout: 300000 });
-          this.log('Relay deploy completed');
-        } catch (flyErr) {
-          this.log(`Relay deploy failed: ${flyErr.message}`);
-          // Relay 배포 실패해도 계속 진행 (Pylon은 업데이트 가능)
-        }
-      }
+        this.deployState.tasks.apk = 'running';
+        this.sendDeployStatus();
 
-      // 3. APK 빌드 (Relay 배포 담당 Pylon만)
-      if (relayDeploy) {
         this.log('Building APK...');
-        try {
-          const appDir = path.join(REPO_DIR, 'estelle-app');
-          execSync('C:\\flutter\\bin\\flutter.bat build apk --release', {
-            cwd: appDir, encoding: 'utf-8', timeout: 300000
-          });
-          this.log('APK build completed');
+        const appDir = path.join(REPO_DIR, 'estelle-app');
+        execSync('C:\\flutter\\bin\\flutter.bat build apk --release', {
+          cwd: appDir, encoding: 'utf-8', timeout: 600000
+        });
 
-          // GitHub Release에 업로드
-          execSync('gh release upload deploy build/app/outputs/flutter-apk/app-release.apk --clobber', {
-            cwd: appDir, encoding: 'utf-8'
-          });
-          this.log('APK uploaded to GitHub Release');
-        } catch (apkErr) {
-          this.log(`APK build/upload failed: ${apkErr.message}`);
-        }
+        this.deployState.tasks.apk = 'done';
+        this.sendDeployStatus();
+        this.log('APK build completed');
+
+        // 3. EXE 빌드 (Windows 데스크탑)
+        this.deployState.tasks.exe = 'running';
+        this.sendDeployStatus();
+
+        this.log('Building EXE...');
+        execSync('C:\\flutter\\bin\\flutter.bat build windows --release', {
+          cwd: appDir, encoding: 'utf-8', timeout: 600000
+        });
+
+        this.deployState.tasks.exe = 'done';
+        this.sendDeployStatus();
+        this.log('EXE build completed');
+      } else {
+        this.deployState.tasks.apk = 'done'; // 해당 없음
+        this.deployState.tasks.exe = 'done'; // 해당 없음
       }
 
-      // 4. 준비 완료 응답
+      // 3. npm install (병렬로 진행 가능하지만 순차로 단순화)
+      this.deployState.tasks.npm = 'running';
+      this.sendDeployStatus();
+
+      this.log('Running npm install...');
+      const pylonDir = path.join(REPO_DIR, 'estelle-pylon');
+      execSync('npm install', { cwd: pylonDir, encoding: 'utf-8' });
+
+      this.deployState.tasks.npm = 'done';
+      this.sendDeployStatus();
+      this.log('npm install completed');
+
+      // 4. deploy.json 업데이트 (커밋 해시, 버전)
+      if (relayDeploy) {
+        this.deployState.tasks.json = 'running';
+        this.sendDeployStatus();
+
+        this.log('Updating deploy.json...');
+        const commitHash = execSync('git rev-parse --short HEAD', {
+          cwd: REPO_DIR, encoding: 'utf-8'
+        }).trim();
+
+        // package.json에서 버전 읽기
+        const packageJson = JSON.parse(fs.readFileSync(
+          path.join(pylonDir, 'package.json'), 'utf-8'
+        ));
+        const version = packageJson.version || '1.0.0';
+
+        // deploy.json 생성 및 업로드
+        const deployJson = { commit: commitHash, version, timestamp: Date.now() };
+        const deployJsonPath = path.join(REPO_DIR, 'deploy.json');
+        fs.writeFileSync(deployJsonPath, JSON.stringify(deployJson, null, 2));
+
+        execSync(`gh release upload deploy "${deployJsonPath}" --clobber`, {
+          cwd: REPO_DIR, encoding: 'utf-8'
+        });
+
+        this.deployState.tasks.json = 'done';
+        this.deployState.commitHash = commitHash;
+        this.deployState.version = version;
+        this.sendDeployStatus();
+        this.log(`deploy.json updated: ${commitHash} v${version}`);
+      } else {
+        this.deployState.tasks.json = 'done';
+      }
+
+      // 5. 빌드 완료
+      this.deployState.ready = true;
+
       this.send({
         type: 'deploy_ready',
+        to: this.deployState.requesterId,
         payload: {
           deviceId: this.deviceId,
           success: true,
-          relayDeployed: relayDeploy || false
-        },
-        broadcast: 'all'
+          commitHash: this.deployState.commitHash,
+          version: this.deployState.version
+        }
       });
 
-      this.log('Deploy prepare completed, ready for deploy_go');
+      this.log('Deploy prepare completed');
+
+      // 사전 승인된 경우 바로 deploy_start 전송
+      if (this.deployState.preApproved) {
+        this.log('Pre-approved, sending deploy_start immediately');
+        this.broadcastDeployStart();
+      }
 
     } catch (err) {
       this.log(`Deploy prepare failed: ${err.message}`);
+
+      // 실패한 태스크 표시
+      for (const key of Object.keys(this.deployState.tasks)) {
+        if (this.deployState.tasks[key] === 'running') {
+          this.deployState.tasks[key] = 'error';
+        }
+      }
+      this.sendDeployStatus();
+
       this.send({
         type: 'deploy_ready',
+        to: this.deployState.requesterId,
         payload: {
           deviceId: this.deviceId,
           success: false,
           error: err.message
-        },
-        broadcast: 'all'
+        }
+      });
+
+      this.resetDeployState();
+    }
+  }
+
+  /**
+   * 사용자 확인 (사전 승인 / 취소 토글)
+   */
+  handleDeployConfirm(message) {
+    const { preApproved, cancel } = message.payload || {};
+    const from = message.from;
+
+    if (cancel) {
+      this.log('Deploy confirm cancelled');
+      this.deployState.preApproved = false;
+      return;
+    }
+
+    this.log(`Deploy confirm received. preApproved: ${preApproved}`);
+    this.deployState.preApproved = true;
+
+    // 이미 빌드 완료된 경우 바로 deploy_start
+    if (this.deployState.ready) {
+      this.log('Already ready, sending deploy_start');
+      this.broadcastDeployStart();
+    }
+  }
+
+  /**
+   * deploy_start 브로드캐스트 (다른 Pylon들에게)
+   */
+  broadcastDeployStart() {
+    this.send({
+      type: 'deploy_start',
+      broadcast: 'all',
+      payload: {
+        commitHash: this.deployState.commitHash,
+        version: this.deployState.version,
+        leadPylonId: this.deviceId
+      }
+    });
+  }
+
+  /**
+   * deploy_start 수신 (다른 Pylon)
+   * - git pull + npm install 후 ack 전송
+   */
+  async handleDeployStart(message) {
+    const { commitHash, version, leadPylonId } = message.payload || {};
+
+    // 주도 Pylon은 무시
+    if (leadPylonId === this.deviceId) {
+      this.log('I am the lead pylon, ignoring deploy_start');
+      return;
+    }
+
+    this.log(`Deploy start received. commitHash: ${commitHash}, leadPylon: ${leadPylonId}`);
+
+    try {
+      // git pull
+      this.log('Running git fetch && git pull...');
+      execSync('git fetch origin', { cwd: REPO_DIR, encoding: 'utf-8' });
+      execSync(`git checkout ${commitHash}`, { cwd: REPO_DIR, encoding: 'utf-8' });
+      this.log('Git checkout completed');
+
+      // npm install
+      this.log('Running npm install...');
+      const pylonDir = path.join(REPO_DIR, 'estelle-pylon');
+      execSync('npm install', { cwd: pylonDir, encoding: 'utf-8' });
+      this.log('npm install completed');
+
+      // ack 전송
+      this.send({
+        type: 'deploy_start_ack',
+        to: { deviceId: leadPylonId, deviceType: 'pylon' },
+        payload: {
+          deviceId: this.deviceId,
+          success: true
+        }
+      });
+
+      this.log('Deploy start ack sent');
+
+    } catch (err) {
+      this.log(`Deploy start failed: ${err.message}`);
+
+      this.send({
+        type: 'deploy_start_ack',
+        to: { deviceId: leadPylonId, deviceType: 'pylon' },
+        payload: {
+          deviceId: this.deviceId,
+          success: false,
+          error: err.message
+        }
       });
     }
   }
 
   /**
-   * 2단계: 배포 실행
-   * - 자가패치 배치파일 실행 후 종료
-   * - pm2가 자동으로 재시작
+   * deploy_start_ack 수신 (주도 Pylon)
    */
-  handleDeployGo(message) {
-    this.log('Deploy go received, starting self-patch...');
+  handleDeployStartAck(message) {
+    const { deviceId, success, error } = message.payload || {};
 
-    // 연결 종료 예고
+    this.log(`Deploy start ack from ${deviceId}: ${success ? 'success' : 'failed'}`);
+
+    if (success) {
+      this.deployState.pylonAcks.add(deviceId);
+    }
+
+    // 모든 Pylon ack 수신 여부 확인 → 클라이언트에게 알림
+    // (현재는 단순히 ack 수신했음을 알림, Pylon 목록 관리는 추후)
     this.send({
-      type: 'deploy_restarting',
-      payload: { deviceId: this.deviceId },
-      broadcast: 'all'
+      type: 'deploy_ack_received',
+      to: this.deployState.requesterId,
+      payload: {
+        deviceId,
+        success,
+        error,
+        totalAcks: this.deployState.pylonAcks.size
+      }
     });
+  }
 
-    // 배치파일 경로
-    const batchPath = path.join(REPO_DIR, 'estelle-pylon', 'self-patch.bat');
+  /**
+   * 배포 실행 (GO 버튼)
+   * - APK 업로드, fly deploy, 재시작
+   */
+  async handleDeployGo(message) {
+    this.log('Deploy go received');
 
-    // 배치파일 생성 (동적으로)
-    const batchContent = `@echo off
+    try {
+      // 주도 Pylon만 APK/EXE 업로드 및 fly deploy 수행
+      if (this.deployState.relayDeploy) {
+        const appDir = path.join(REPO_DIR, 'estelle-app');
+
+        // APK 업로드
+        this.log('Uploading APK...');
+        this.send({
+          type: 'deploy_status',
+          broadcast: 'all',
+          payload: {
+            deviceId: this.deviceId,
+            tasks: { apk: 'uploading', exe: 'waiting', relay: 'waiting' },
+            message: 'APK(업로드중) EXE(대기) Relay(대기)'
+          }
+        });
+
+        execSync('gh release upload deploy build/app/outputs/flutter-apk/app-release.apk --clobber', {
+          cwd: appDir, encoding: 'utf-8'
+        });
+        this.log('APK uploaded');
+
+        // EXE 업로드
+        this.log('Uploading EXE...');
+        this.send({
+          type: 'deploy_status',
+          broadcast: 'all',
+          payload: {
+            deviceId: this.deviceId,
+            tasks: { apk: 'done', exe: 'uploading', relay: 'waiting' },
+            message: 'APK(✓) EXE(업로드중) Relay(대기)'
+          }
+        });
+
+        // EXE 파일들을 ZIP으로 압축해서 업로드
+        const exeDir = path.join(appDir, 'build', 'windows', 'x64', 'runner', 'Release');
+        const zipPath = path.join(appDir, 'build', 'estelle-windows.zip');
+        execSync(`powershell -Command "Compress-Archive -Path '${exeDir}\\*' -DestinationPath '${zipPath}' -Force"`, {
+          cwd: appDir, encoding: 'utf-8'
+        });
+        execSync(`gh release upload deploy "${zipPath}" --clobber`, {
+          cwd: appDir, encoding: 'utf-8'
+        });
+        this.log('EXE uploaded');
+
+        // fly deploy
+        this.log('Deploying Relay...');
+        this.send({
+          type: 'deploy_status',
+          broadcast: 'all',
+          payload: {
+            deviceId: this.deviceId,
+            tasks: { apk: 'done', exe: 'done', relay: 'deploying' },
+            message: 'APK(✓) EXE(✓) Relay(배포중)'
+          }
+        });
+
+        const relayDir = path.join(REPO_DIR, 'estelle-relay');
+        execSync('fly deploy', { cwd: relayDir, encoding: 'utf-8', timeout: 300000 });
+        this.log('Relay deployed');
+
+        this.send({
+          type: 'deploy_status',
+          broadcast: 'all',
+          payload: {
+            deviceId: this.deviceId,
+            tasks: { apk: 'done', exe: 'done', relay: 'done' },
+            message: 'APK(✓) EXE(✓) Relay(✓)'
+          }
+        });
+      }
+
+      // 재시작 시그널
+      this.send({
+        type: 'deploy_restart',
+        broadcast: 'all',
+        payload: {}
+      });
+
+      // 잠시 대기 후 재시작 (다른 Pylon이 먼저 재시작하도록)
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      this.log('Starting self-patch...');
+
+      // 연결 종료 예고
+      this.send({
+        type: 'deploy_restarting',
+        payload: { deviceId: this.deviceId },
+        broadcast: 'all'
+      });
+
+      // 배치파일 경로
+      const batchPath = path.join(REPO_DIR, 'estelle-pylon', 'self-patch.bat');
+
+      // 배치파일 생성
+      const batchContent = `@echo off
 timeout /t 2 /nobreak > nul
 cd /d "${path.join(REPO_DIR, 'estelle-pylon')}"
-call npm install
-pm2 restart pylon
+pm2 restart estelle-pylon
 `;
-    fs.writeFileSync(batchPath, batchContent, 'utf-8');
-    this.log(`Created self-patch.bat at ${batchPath}`);
+      fs.writeFileSync(batchPath, batchContent, 'utf-8');
+      this.log(`Created self-patch.bat at ${batchPath}`);
 
-    // 배치파일을 detached로 실행하고 프로세스 종료
-    const child = spawn('cmd.exe', ['/c', batchPath], {
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: true
-    });
-    child.unref();
+      // 배치파일을 detached로 실행하고 프로세스 종료
+      const child = spawn('cmd.exe', ['/c', batchPath], {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true
+      });
+      child.unref();
 
-    this.log('Self-patch started, exiting...');
+      this.log('Self-patch started, exiting...');
 
-    // 잠시 후 종료 (메시지 전송 완료 대기)
-    setTimeout(() => {
-      process.exit(0);
-    }, 500);
+      // 잠시 후 종료 (메시지 전송 완료 대기)
+      setTimeout(() => {
+        process.exit(0);
+      }, 500);
+
+    } catch (err) {
+      this.log(`Deploy go failed: ${err.message}`);
+
+      this.send({
+        type: 'deploy_error',
+        broadcast: 'all',
+        payload: {
+          deviceId: this.deviceId,
+          error: err.message
+        }
+      });
+    }
   }
 }
 
