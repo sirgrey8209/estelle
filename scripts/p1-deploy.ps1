@@ -39,11 +39,9 @@ try {
     }
     $commit = $gitResult.commit
 
-    # 버전 결정
+    # 버전 결정 (기본값: v0.1)
     if (-not $Version) {
-        $versionFile = Join-Path $RepoDir "version.json"
-        $versionJson = Get-Content $versionFile | ConvertFrom-Json
-        $Version = "$($versionJson.relay).$($versionJson.pylon).$($versionJson.desktop)"
+        $Version = "v0.1"
     }
 
     # 2. Build APK

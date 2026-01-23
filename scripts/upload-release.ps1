@@ -1,7 +1,7 @@
 # upload-release.ps1 - GitHub Release 업로드
 # deploy.json, APK 업로드
 #
-# 사용법: .\scripts\upload-release.ps1 -Commit abc1234 -Version 1.0.0 -BuildTime 20260123113000
+# 사용법: .\scripts\upload-release.ps1 -Commit abc1234 -Version v0.1 -BuildTime 20260123113000
 # 결과: JSON { success, commit, version, buildTime, uploaded, message }
 
 param(

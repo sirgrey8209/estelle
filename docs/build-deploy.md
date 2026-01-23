@@ -42,7 +42,7 @@ $buildTime = Get-Date -Format "yyyyMMddHHmmss"
 
 # 3. GitHub Release 업로드
 $commit = git rev-parse --short HEAD
-.\scripts\upload-release.ps1 -Commit $commit -Version "0.0.1" -BuildTime $buildTime
+.\scripts\upload-release.ps1 -Commit $commit -Version "v0.1" -BuildTime $buildTime
 
 # 4. 릴리즈 폴더로 복사 (Desktop용)
 .\scripts\copy-release.ps1
@@ -100,11 +100,6 @@ $commit = git rev-parse --short HEAD
 | `install-pm2.ps1` | PM2 설치 및 Pylon 시작 등록 |
 | `build-pylon.ps1` | Pylon npm install |
 
-### 레거시 (미사용)
-| 스크립트 | 설명 |
-|---------|------|
-| `bump-version.ps1` | version.json 기반 버전 관리 (현재 BuildTime 사용) |
-
 ---
 
 ## 5. 버전 관리
@@ -113,7 +108,7 @@ $commit = git rev-parse --short HEAD
 ```json
 {
   "commit": "87b1bed",
-  "version": "0.0.2",
+  "version": "v0.1",
   "buildTime": "20260123210801",
   "deployedAt": "2026-01-23T12:08:37Z"
 }
