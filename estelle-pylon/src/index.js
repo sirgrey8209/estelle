@@ -4,7 +4,7 @@
  */
 
 import 'dotenv/config';
-import { execSync, spawn } from 'child_process';
+import { execSync, spawn, exec } from 'child_process';
 import WebSocket from 'ws';
 import path from 'path';
 import https from 'https';
@@ -829,10 +829,16 @@ class Pylon {
 
       this.log(`Deployed commit: ${deployInfo.commit}`);
 
+      // commit이 undefined거나 유효하지 않으면 스킵
+      if (!deployInfo.commit || deployInfo.commit === 'undefined') {
+        this.log('Invalid deploy commit, skipping update');
+        return;
+      }
+
       if (localCommit !== deployInfo.commit) {
         this.log('Update available, running p2-update...');
 
-        const result = this.runScript('p2-update.ps1', `-Commit ${deployInfo.commit}`);
+        const result = await this.runScriptAsync('p2-update.ps1', `-Commit ${deployInfo.commit}`);
         if (!result.success) {
           throw new Error(result.message);
         }
@@ -996,11 +1002,35 @@ class Pylon {
   }
 
   /**
-   * PowerShell 스크립트 실행 헬퍼
+   * PowerShell 스크립트 실행 헬퍼 (비동기)
+   */
+  runScriptAsync(scriptName, args = '') {
+    return new Promise((resolve, reject) => {
+      const scriptPath = path.join(REPO_DIR, 'scripts', scriptName);
+      const cmd = `powershell -ExecutionPolicy Bypass -File "${scriptPath}" -RepoDir "${REPO_DIR}" ${args}`;
+      exec(cmd, { encoding: 'utf-8', timeout: 600000, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+        if (error) {
+          try {
+            const result = JSON.parse(stdout);
+            if (!result.success) reject(new Error(result.message || 'Script failed'));
+            else resolve(result);
+          } catch (e) {
+            reject(new Error(stderr || stdout || error.message));
+          }
+          return;
+        }
+        try { resolve(JSON.parse(stdout)); }
+        catch (e) { reject(new Error(`Failed to parse JSON: ${stdout}`)); }
+      });
+    });
+  }
+
+  /**
+   * PowerShell 스크립트 실행 헬퍼 (동기)
    */
   runScript(scriptName, args = '') {
     const scriptPath = path.join(REPO_DIR, 'scripts', scriptName);
-    const cmd = `powershell -ExecutionPolicy Bypass -File "${scriptPath}" ${args}`;
+    const cmd = `powershell -ExecutionPolicy Bypass -File "${scriptPath}" -RepoDir "${REPO_DIR}" ${args}`;
     const result = execSync(cmd, { encoding: 'utf-8', timeout: 600000 });
     return JSON.parse(result);
   }
@@ -1026,7 +1056,7 @@ class Pylon {
       this.sendDeployStatus();
 
       this.log('Running git-sync-p1...');
-      const gitResult = this.runScript('git-sync-p1.ps1');
+      const gitResult = await this.runScriptAsync('git-sync-p1.ps1');
       if (!gitResult.success) throw new Error(gitResult.message);
 
       this.deployState.tasks.git = 'done';
@@ -1040,7 +1070,7 @@ class Pylon {
         this.sendDeployStatus();
 
         this.log('Running build-apk...');
-        const apkResult = this.runScript('build-apk.ps1');
+        const apkResult = await this.runScriptAsync('build-apk.ps1');
         if (!apkResult.success) throw new Error(apkResult.message);
 
         this.deployState.tasks.apk = 'done';
@@ -1052,7 +1082,7 @@ class Pylon {
         this.sendDeployStatus();
 
         this.log('Running build-exe...');
-        const exeResult = this.runScript('build-exe.ps1');
+        const exeResult = await this.runScriptAsync('build-exe.ps1');
         if (!exeResult.success) throw new Error(exeResult.message);
 
         this.deployState.tasks.exe = 'done';
@@ -1068,7 +1098,7 @@ class Pylon {
       this.sendDeployStatus();
 
       this.log('Running build-pylon...');
-      const pylonResult = this.runScript('build-pylon.ps1');
+      const pylonResult = await this.runScriptAsync('build-pylon.ps1');
       if (!pylonResult.success) throw new Error(pylonResult.message);
 
       this.deployState.tasks.npm = 'done';
@@ -1186,7 +1216,7 @@ class Pylon {
     try {
       // P2 업데이트 스크립트 실행
       this.log('Running p2-update...');
-      const result = this.runScript('p2-update.ps1', `-Commit ${commitHash}`);
+      const result = await this.runScriptAsync('p2-update.ps1', `-Commit ${commitHash}`);
 
       if (!result.success) {
         throw new Error(result.message);
@@ -1269,7 +1299,7 @@ class Pylon {
           }
         });
 
-        const uploadResult = this.runScript('upload-release.ps1',
+        const uploadResult = await this.runScriptAsync('upload-release.ps1',
           `-Commit ${this.deployState.commitHash} -Version ${this.deployState.version}`);
         if (!uploadResult.success) throw new Error(uploadResult.message);
         this.log(`Uploaded: ${uploadResult.uploaded.join(', ')}`);
@@ -1286,7 +1316,7 @@ class Pylon {
           }
         });
 
-        const relayResult = this.runScript('deploy-relay.ps1');
+        const relayResult = await this.runScriptAsync('deploy-relay.ps1');
         if (!relayResult.success) throw new Error(relayResult.message);
         this.log('Relay deployed');
 
@@ -1302,7 +1332,7 @@ class Pylon {
           }
         });
 
-        const copyResult = this.runScript('copy-release.ps1');
+        const copyResult = await this.runScriptAsync('copy-release.ps1');
         if (!copyResult.success) throw new Error(copyResult.message);
         this.log(`Copied to: ${copyResult.destination}`);
 
