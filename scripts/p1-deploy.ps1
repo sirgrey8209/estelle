@@ -39,9 +39,14 @@ try {
     }
     $commit = $gitResult.commit
 
-    # 버전 결정 (기본값: v0.1)
+    # 버전 결정 (입력 없으면 현재 deploy.json에서 가져옴)
     if (-not $Version) {
-        $Version = "v0.1"
+        try {
+            $deployJson = & "C:\Program Files\GitHub CLI\gh.exe" release download deploy -p "deploy.json" --repo sirgrey8209/estelle -O - 2>$null | ConvertFrom-Json
+            $Version = $deployJson.version
+        } catch {
+            $Version = "v0.1"
+        }
     }
 
     # 2. Build APK

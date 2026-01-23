@@ -7,7 +7,6 @@
 param(
     [Parameter(Mandatory=$true)]
     [string]$Commit,
-    [Parameter(Mandatory=$true)]
     [string]$Version,
     [Parameter(Mandatory=$true)]
     [string]$BuildTime,
@@ -19,6 +18,16 @@ $GhExe = "C:\Program Files\GitHub CLI\gh.exe"
 $GitHubRepo = "sirgrey8209/estelle"
 $ReleaseName = "deploy"
 $AppDir = Join-Path $RepoDir "estelle-app"
+
+# 버전 결정 (입력 없으면 현재 deploy.json에서 가져옴)
+if (-not $Version) {
+    try {
+        $currentDeploy = & $GhExe release download deploy -p "deploy.json" --repo $GitHubRepo -O - 2>$null | ConvertFrom-Json
+        $Version = $currentDeploy.version
+    } catch {
+        $Version = "v0.1"
+    }
+}
 
 try {
     $uploaded = @()

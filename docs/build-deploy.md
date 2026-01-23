@@ -40,9 +40,12 @@ $buildTime = Get-Date -Format "yyyyMMddHHmmss"
 .\scripts\build-apk.ps1 -BuildTime $buildTime
 .\scripts\build-exe.ps1 -BuildTime $buildTime
 
-# 3. GitHub Release 업로드
+# 3. GitHub Release 업로드 (버전 생략시 기존 버전 유지)
 $commit = git rev-parse --short HEAD
-.\scripts\upload-release.ps1 -Commit $commit -Version "v0.1" -BuildTime $buildTime
+.\scripts\upload-release.ps1 -Commit $commit -BuildTime $buildTime
+
+# 버전 변경시
+.\scripts\upload-release.ps1 -Commit $commit -Version "v0.2" -BuildTime $buildTime
 
 # 4. 릴리즈 폴더로 복사 (Desktop용)
 .\scripts\copy-release.ps1
