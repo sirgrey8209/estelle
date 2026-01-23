@@ -293,6 +293,16 @@ class RelayService {
       'payload': {},
     });
   }
+
+  // ============ Claude Usage ============
+
+  /// Claude 사용량 요청 (첫 번째 Pylon에게)
+  void requestClaudeUsage() {
+    send({
+      'type': 'claude_usage_request',
+      'broadcast': 'pylons',
+    });
+  }
 }
 
 // Singleton instance

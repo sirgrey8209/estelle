@@ -473,6 +473,12 @@ class Pylon {
       return;
     }
 
+    // Claude 사용량 요청
+    if (type === 'claude_usage_request') {
+      this.handleClaudeUsageRequest(message);
+      return;
+    }
+
     // 새 배포 시스템
     if (type === 'deploy_prepare') {
       this.handleDeployPrepare(message);
@@ -933,6 +939,111 @@ class Pylon {
       this.log(`Deploy failed: ${err.message}`);
       ws.send(JSON.stringify({ type: 'deploy_result', success: false, message: err.message }));
     }
+  }
+
+  // ============ Claude 사용량 ============
+
+  /**
+   * Claude 사용량 요청 처리
+   */
+  async handleClaudeUsageRequest(message) {
+    const from = message.from;
+    this.log('Claude usage request received');
+
+    try {
+      // ~/.claude/.credentials.json에서 토큰 읽기
+      const homeDir = process.env.HOME || process.env.USERPROFILE;
+      const credentialsPath = path.join(homeDir, '.claude', '.credentials.json');
+
+      if (!fs.existsSync(credentialsPath)) {
+        throw new Error('Credentials file not found');
+      }
+
+      const credentials = JSON.parse(fs.readFileSync(credentialsPath, 'utf-8'));
+      const accessToken = credentials.claudeAiOauth?.accessToken;
+
+      if (!accessToken) {
+        throw new Error('Access token not found in credentials');
+      }
+
+      // Anthropic API 호출
+      const usage = await this.fetchClaudeUsage(accessToken);
+
+      this.send({
+        type: 'claude_usage_result',
+        to: from?.deviceId ? { deviceId: from.deviceId, deviceType: from.deviceType } : undefined,
+        broadcast: from?.deviceId ? undefined : 'clients',
+        payload: usage
+      });
+
+    } catch (err) {
+      this.log(`Claude usage request failed: ${err.message}`);
+      this.send({
+        type: 'claude_usage_result',
+        to: from?.deviceId ? { deviceId: from.deviceId, deviceType: from.deviceType } : undefined,
+        broadcast: from?.deviceId ? undefined : 'clients',
+        payload: {
+          usage5h: 0,
+          usage7d: 0,
+          error: err.message
+        }
+      });
+    }
+  }
+
+  /**
+   * Anthropic API에서 사용량 조회
+   */
+  fetchClaudeUsage(accessToken) {
+    return new Promise((resolve, reject) => {
+      const options = {
+        hostname: 'api.anthropic.com',
+        path: '/api/organizations/usage',
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      };
+
+      const req = https.request(options, (res) => {
+        let data = '';
+        res.on('data', chunk => data += chunk);
+        res.on('end', () => {
+          try {
+            if (res.statusCode !== 200) {
+              reject(new Error(`API returned ${res.statusCode}: ${data}`));
+              return;
+            }
+
+            const json = JSON.parse(data);
+
+            // API 응답 파싱
+            const usage5h = json.standardRateLimitStatus?.percentConsumed ?? json.usage_5h?.percentage ?? 0;
+            const usage7d = json.dailyRateLimitStatus?.percentConsumed ?? json.usage_7d?.percentage ?? 0;
+            const resets5h = json.standardRateLimitStatus?.resetsAt ?? json.usage_5h?.resets_at;
+            const resets7d = json.dailyRateLimitStatus?.resetsAt ?? json.usage_7d?.resets_at;
+
+            resolve({
+              usage5h,
+              usage7d,
+              resets5h,
+              resets7d,
+              error: null
+            });
+          } catch (e) {
+            reject(new Error(`Failed to parse response: ${e.message}`));
+          }
+        });
+      });
+
+      req.on('error', reject);
+      req.setTimeout(10000, () => {
+        req.destroy();
+        reject(new Error('Request timeout'));
+      });
+      req.end();
+    });
   }
 
   // ============ 배포 시스템 ============

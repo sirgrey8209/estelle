@@ -7,6 +7,7 @@ import '../../state/providers/relay_provider.dart';
 import '../../state/providers/desk_provider.dart';
 import '../widgets/sidebar/sidebar.dart';
 import '../widgets/chat/chat_area.dart';
+import '../widgets/settings/settings_dialog.dart';
 
 class DesktopLayout extends ConsumerWidget {
   const DesktopLayout({super.key});
@@ -67,6 +68,15 @@ class _Header extends StatelessWidget {
       ),
       child: Row(
         children: [
+          // Settings button
+          IconButton(
+            icon: const Icon(Icons.settings, color: NordColors.nord4, size: 20),
+            onPressed: () => SettingsDialog.show(context),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+            tooltip: 'Settings',
+          ),
+          const SizedBox(width: 12),
           // Title
           const Text(
             'Estelle Flutter',

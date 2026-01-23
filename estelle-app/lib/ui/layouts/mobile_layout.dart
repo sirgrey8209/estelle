@@ -7,6 +7,7 @@ import '../../state/providers/desk_provider.dart';
 import '../../state/providers/claude_provider.dart';
 import '../widgets/chat/chat_area.dart';
 import '../widgets/sidebar/new_desk_dialog.dart';
+import '../widgets/settings/settings_screen.dart';
 
 class MobileLayout extends ConsumerStatefulWidget {
   const MobileLayout({super.key});
@@ -20,6 +21,8 @@ class _MobileLayoutState extends ConsumerState<MobileLayout> {
   int _currentPage = 1;
   double? _dragStartX;
   double? _dragStartPage;
+
+  static const int _pageCount = 3; // Desks, Claude, Settings
 
   @override
   void dispose() {
@@ -48,7 +51,7 @@ class _MobileLayoutState extends ConsumerState<MobileLayout> {
     final delta = event.position.dx - _dragStartX!;
     final pageDelta = -delta / viewportWidth;
 
-    final newPage = (_dragStartPage! + pageDelta).clamp(0.0, 1.0);
+    final newPage = (_dragStartPage! + pageDelta).clamp(0.0, _pageCount - 1.0);
     _pageController.jumpTo(newPage * viewportWidth);
   }
 
@@ -68,10 +71,12 @@ class _MobileLayoutState extends ConsumerState<MobileLayout> {
 
     if (delta.abs() > viewportWidth * 0.2) {
       // Dragged more than 20% - go to next/prev page
-      targetPage = delta > 0 ? 0 : 1;
+      targetPage = delta > 0
+          ? (currentPosition - 1).round().clamp(0, _pageCount - 1)
+          : (currentPosition + 1).round().clamp(0, _pageCount - 1);
     } else {
       // Snap to nearest page
-      targetPage = currentPosition.round();
+      targetPage = currentPosition.round().clamp(0, _pageCount - 1);
     }
 
     _goToPage(targetPage);
@@ -93,7 +98,7 @@ class _MobileLayoutState extends ConsumerState<MobileLayout> {
                 'Desks',
                 style: TextStyle(fontSize: 18, color: NordColors.nord6),
               ),
-            ] else if (selectedDesk != null) ...[
+            ] else if (_currentPage == 1 && selectedDesk != null) ...[
               IconButton(
                 icon: const Icon(Icons.arrow_back, size: 20),
                 onPressed: () => _goToPage(0),
@@ -109,6 +114,13 @@ class _MobileLayoutState extends ConsumerState<MobileLayout> {
                   style: const TextStyle(fontSize: 16, color: NordColors.nord5),
                   overflow: TextOverflow.ellipsis,
                 ),
+              ),
+            ] else if (_currentPage == 2) ...[
+              const Icon(Icons.settings, color: NordColors.nord4, size: 20),
+              const SizedBox(width: 8),
+              const Text(
+                'Settings',
+                style: TextStyle(fontSize: 18, color: NordColors.nord6),
               ),
             ] else ...[
               if (_currentPage == 1) ...[
@@ -162,30 +174,141 @@ class _MobileLayoutState extends ConsumerState<MobileLayout> {
           ),
         ],
       ),
-      body: Listener(
-        onPointerDown: _onPointerDown,
-        onPointerMove: _onPointerMove,
-        onPointerUp: _onPointerUp,
-        child: PageView(
-          controller: _pageController,
-          physics: const NeverScrollableScrollPhysics(),
-          onPageChanged: (page) => setState(() => _currentPage = page),
-          children: [
-            // Page 0: Desk list
-            _DeskListPage(
-              onDeskSelected: (desk) {
-                // 데스크 선택 처리 (저장 + 로드 + sync 요청)
-                final currentDesk = ref.read(selectedDeskProvider);
-                ref.read(claudeMessagesProvider.notifier)
-                    .onDeskSelected(currentDesk, desk);
-                ref.read(selectedDeskProvider.notifier).select(desk);
-                // Go to chat
-                _goToPage(1);
-              },
+      body: Column(
+        children: [
+          // Tab navigation bar
+          _TabBar(
+            currentPage: _currentPage,
+            onTabSelected: _goToPage,
+          ),
+          // Page content
+          Expanded(
+            child: Listener(
+              onPointerDown: _onPointerDown,
+              onPointerMove: _onPointerMove,
+              onPointerUp: _onPointerUp,
+              child: PageView(
+                controller: _pageController,
+                physics: const NeverScrollableScrollPhysics(),
+                onPageChanged: (page) => setState(() => _currentPage = page),
+                children: [
+                  // Page 0: Desk list
+                  _DeskListPage(
+                    onDeskSelected: (desk) {
+                      // 데스크 선택 처리 (저장 + 로드 + sync 요청)
+                      final currentDesk = ref.read(selectedDeskProvider);
+                      ref.read(claudeMessagesProvider.notifier)
+                          .onDeskSelected(currentDesk, desk);
+                      ref.read(selectedDeskProvider.notifier).select(desk);
+                      // Go to chat
+                      _goToPage(1);
+                    },
+                  ),
+                  // Page 1: Chat
+                  const ChatArea(),
+                  // Page 2: Settings
+                  const SettingsScreen(),
+                ],
+              ),
             ),
-            // Page 1: Chat
-            const ChatArea(),
-          ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TabBar extends StatelessWidget {
+  final int currentPage;
+  final ValueChanged<int> onTabSelected;
+
+  const _TabBar({
+    required this.currentPage,
+    required this.onTabSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 40,
+      decoration: const BoxDecoration(
+        color: NordColors.nord1,
+        border: Border(
+          bottom: BorderSide(color: NordColors.nord2),
+        ),
+      ),
+      child: Row(
+        children: [
+          _TabItem(
+            label: 'Desks',
+            icon: Icons.folder,
+            isSelected: currentPage == 0,
+            onTap: () => onTabSelected(0),
+          ),
+          _TabItem(
+            label: 'Claude',
+            icon: Icons.chat,
+            isSelected: currentPage == 1,
+            onTap: () => onTabSelected(1),
+          ),
+          _TabItem(
+            label: 'Settings',
+            icon: Icons.settings,
+            isSelected: currentPage == 2,
+            onTap: () => onTabSelected(2),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TabItem extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _TabItem({
+    required this.label,
+    required this.icon,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(
+                color: isSelected ? NordColors.nord10 : Colors.transparent,
+                width: 2,
+              ),
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                size: 16,
+                color: isSelected ? NordColors.nord10 : NordColors.nord4,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: isSelected ? NordColors.nord10 : NordColors.nord4,
+                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
