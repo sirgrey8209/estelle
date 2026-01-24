@@ -669,52 +669,55 @@ class Pylon {
       const { workspaceId, taskId } = payload || {};
       const workspace = workspaceStore.getWorkspace(workspaceId);
       if (workspace) {
-        // 워커 시작을 위한 콜백 함수
-        const startClaudeCallback = async (wsId, workingDir, prompt) => {
-          // 워커용 대화 생성 또는 기존 대화 사용
-          let conversation = workspace.conversations.find(c => c.name === '📋 워커');
-          if (!conversation) {
-            conversation = workspaceStore.createConversation(workspaceId, '📋 워커');
-          }
+        // 비동기 처리를 IIFE로 래핑
+        (async () => {
+          // 워커 시작을 위한 콜백 함수
+          const startClaudeCallback = async (wsId, workingDir, prompt) => {
+            // 워커용 대화 생성 또는 기존 대화 사용
+            let conversation = workspace.conversations.find(c => c.name === '📋 워커');
+            if (!conversation) {
+              conversation = workspaceStore.createConversation(workspaceId, '📋 워커');
+            }
 
-          // 워커 대화를 활성화
-          workspaceStore.setActiveConversation(conversation.conversationId);
+            // 워커 대화를 활성화
+            workspaceStore.setActiveConversation(conversation.conversationId);
 
-          // Claude에게 메시지 전송 (기존 데스크 시스템 사용)
-          // 워커 대화 ID를 deskId로 사용
-          const workerDeskId = `worker-${workspaceId}`;
+            // Claude에게 메시지 전송 (기존 데스크 시스템 사용)
+            // 워커 대화 ID를 deskId로 사용
+            const workerDeskId = `worker-${workspaceId}`;
 
-          // deskStore에 워커용 임시 데스크 생성
-          if (!deskStore.getDesk(workerDeskId)) {
-            deskStore.createWorkerDesk(workerDeskId, workspace.name, workingDir);
-          }
+            // deskStore에 워커용 임시 데스크 생성
+            if (!deskStore.getDesk(workerDeskId)) {
+              deskStore.createWorkerDesk(workerDeskId, workspace.name, workingDir);
+            }
 
-          // Claude 메시지 전송
-          this.claudeManager.sendMessage(workerDeskId, prompt);
+            // Claude 메시지 전송
+            this.claudeManager.sendMessage(workerDeskId, prompt);
 
-          return {
-            process: null, // ClaudeManager가 내부적으로 관리
-            conversationId: conversation.conversationId
+            return {
+              process: null, // ClaudeManager가 내부적으로 관리
+              conversationId: conversation.conversationId
+            };
           };
-        };
 
-        // 워커 시작
-        const result = await workerManager.startWorker(workspaceId, workspace.workingDir, startClaudeCallback);
+          // 워커 시작
+          const result = await workerManager.startWorker(workspaceId, workspace.workingDir, startClaudeCallback);
 
-        this.send({
-          type: 'worker_start_result',
-          to: from?.deviceId,
-          payload: {
-            deviceId: this.deviceId,
-            ...result
+          this.send({
+            type: 'worker_start_result',
+            to: from?.deviceId,
+            payload: {
+              deviceId: this.deviceId,
+              ...result
+            }
+          });
+
+          // 워커 상태 브로드캐스트
+          if (result.success) {
+            this.broadcastWorkerStatus(workspaceId);
+            this.broadcastTaskList(workspaceId);
           }
-        });
-
-        // 워커 상태 브로드캐스트
-        if (result.success) {
-          this.broadcastWorkerStatus(workspaceId);
-          this.broadcastTaskList(workspaceId);
-        }
+        })();
       }
       return;
     }
