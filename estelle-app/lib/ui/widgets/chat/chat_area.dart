@@ -8,10 +8,11 @@ import '../../../state/providers/relay_provider.dart';
 import 'message_list.dart';
 import 'input_bar.dart';
 import '../requests/request_bar.dart';
-import '../deploy/deploy_dialog.dart';
 
 class ChatArea extends ConsumerWidget {
-  const ChatArea({super.key});
+  final bool showHeader;
+
+  const ChatArea({super.key, this.showHeader = true});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -23,7 +24,7 @@ class ChatArea extends ConsumerWidget {
 
     return Column(
       children: [
-        _ChatHeader(desk: selectedDesk),
+        if (showHeader) _ChatHeader(desk: selectedDesk),
         const Expanded(child: MessageList()),
         const _BottomArea(),
       ],
@@ -77,60 +78,92 @@ class _ChatHeader extends ConsumerWidget {
   }
 }
 
+/// 퍼미션 모드 Provider (글로벌)
+final permissionModeProvider = StateProvider<String>((ref) => 'default');
+
 class _SessionMenuButton extends ConsumerWidget {
   final DeskInfo desk;
 
   const _SessionMenuButton({required this.desk});
 
+  static const _permissionModes = ['default', 'acceptEdits', 'bypassPermissions'];
+  static const _permissionLabels = {
+    'default': 'Default',
+    'acceptEdits': 'Accept Edits',
+    'bypassPermissions': 'Bypass All',
+  };
+  static const _permissionIcons = {
+    'default': Icons.security,
+    'acceptEdits': Icons.edit_note,
+    'bypassPermissions': Icons.warning_amber,
+  };
+  static const _permissionColors = {
+    'default': NordColors.nord4,
+    'acceptEdits': NordColors.nord8,
+    'bypassPermissions': NordColors.nord12,
+  };
+
+  void _cyclePermissionMode(WidgetRef ref) {
+    final currentMode = ref.read(permissionModeProvider);
+    final currentIndex = _permissionModes.indexOf(currentMode);
+    final nextIndex = (currentIndex + 1) % _permissionModes.length;
+    final nextMode = _permissionModes[nextIndex];
+
+    ref.read(permissionModeProvider.notifier).state = nextMode;
+    ref.read(relayServiceProvider).setPermissionMode(nextMode);
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return PopupMenuButton<String>(
-      icon: const Icon(Icons.more_vert, color: NordColors.nord5, size: 20),
-      color: NordColors.nord2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      onSelected: (value) => _handleMenuAction(context, ref, value),
-      itemBuilder: (context) => [
-        const PopupMenuItem(
-          value: 'new_session',
-          child: Row(
-            children: [
-              Icon(Icons.add_circle_outline, color: NordColors.nord5, size: 18),
-              SizedBox(width: 8),
-              Text('새 세션', style: TextStyle(color: NordColors.nord5)),
-            ],
+    final currentMode = ref.watch(permissionModeProvider);
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Permission mode cycle button
+        Tooltip(
+          message: 'Permission: ${_permissionLabels[currentMode]}',
+          child: InkWell(
+            onTap: () => _cyclePermissionMode(ref),
+            borderRadius: BorderRadius.circular(4),
+            child: Padding(
+              padding: const EdgeInsets.all(8),
+              child: Icon(
+                _permissionIcons[currentMode],
+                color: _permissionColors[currentMode],
+                size: 20,
+              ),
+            ),
           ),
         ),
-        const PopupMenuItem(
-          value: 'compact',
-          child: Row(
-            children: [
-              Icon(Icons.compress, color: NordColors.nord5, size: 18),
-              SizedBox(width: 8),
-              Text('컴팩트', style: TextStyle(color: NordColors.nord5)),
-            ],
-          ),
-        ),
-        const PopupMenuDivider(),
-        const PopupMenuItem(
-          value: 'permission',
-          child: Row(
-            children: [
-              Icon(Icons.security, color: NordColors.nord5, size: 18),
-              SizedBox(width: 8),
-              Text('퍼미션 설정', style: TextStyle(color: NordColors.nord5)),
-            ],
-          ),
-        ),
-        const PopupMenuDivider(),
-        const PopupMenuItem(
-          value: 'deploy',
-          child: Row(
-            children: [
-              Icon(Icons.rocket_launch, color: NordColors.nord13, size: 18),
-              SizedBox(width: 8),
-              Text('배포', style: TextStyle(color: NordColors.nord13)),
-            ],
-          ),
+        // Menu button
+        PopupMenuButton<String>(
+          icon: const Icon(Icons.more_vert, color: NordColors.nord5, size: 20),
+          color: NordColors.nord2,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          onSelected: (value) => _handleMenuAction(context, ref, value),
+          itemBuilder: (context) => [
+            const PopupMenuItem(
+              value: 'new_session',
+              child: Row(
+                children: [
+                  Icon(Icons.add_circle_outline, color: NordColors.nord5, size: 18),
+                  SizedBox(width: 8),
+                  Text('새 세션', style: TextStyle(color: NordColors.nord5)),
+                ],
+              ),
+            ),
+            const PopupMenuItem(
+              value: 'compact',
+              child: Row(
+                children: [
+                  Icon(Icons.compress, color: NordColors.nord5, size: 18),
+                  SizedBox(width: 8),
+                  Text('컴팩트', style: TextStyle(color: NordColors.nord5)),
+                ],
+              ),
+            ),
+          ],
         ),
       ],
     );
@@ -147,12 +180,6 @@ class _SessionMenuButton extends ConsumerWidget {
           desk.deskId,
           'compact',
         );
-        break;
-      case 'permission':
-        _showPermissionDialog(context, ref);
-        break;
-      case 'deploy':
-        _showDeployDialog(context, ref);
         break;
     }
   }
@@ -188,21 +215,6 @@ class _SessionMenuButton extends ConsumerWidget {
           ),
         ],
       ),
-    );
-  }
-
-  void _showPermissionDialog(BuildContext context, WidgetRef ref) {
-    // TODO: 퍼미션 설정 다이얼로그 구현
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('퍼미션 설정은 아직 준비 중입니다.')),
-    );
-  }
-
-  void _showDeployDialog(BuildContext context, WidgetRef ref) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const DeployDialog(),
     );
   }
 }

@@ -18,9 +18,7 @@ class MessageList extends ConsumerStatefulWidget {
 
 class _MessageListState extends ConsumerState<MessageList> {
   final _scrollController = ScrollController();
-  bool _isNearBottom = true;
-  double? _scrollOffsetBeforePrepend;
-  int _lastMessageCount = 0;
+  bool _showScrollButton = false;
 
   @override
   void initState() {
@@ -40,24 +38,29 @@ class _MessageListState extends ConsumerState<MessageList> {
 
     final position = _scrollController.position;
 
-    // 상단 근처에 도달하면 더 많은 히스토리 로드
-    if (position.pixels <= 100) {
-      _scrollOffsetBeforePrepend = position.pixels;
+    // reverse: true이므로 maxScrollExtent 근처 = 오래된 메시지 영역 (화면 상단)
+    // 히스토리 로드 트리거
+    if (position.pixels >= position.maxScrollExtent - 100) {
       ref.read(claudeMessagesProvider.notifier).loadMoreHistory();
     }
 
-    // 하단 근처 여부 체크 (자동 스크롤용)
-    _isNearBottom = position.pixels >= position.maxScrollExtent - 100;
+    // 스크롤 버튼 표시 여부 (offset 0 = 맨 아래, pixels > 200이면 버튼 표시)
+    final shouldShow = position.pixels > 200;
+    if (shouldShow != _showScrollButton) {
+      setState(() {
+        _showScrollButton = shouldShow;
+      });
+    }
   }
 
   void _scrollToBottom() {
-    if (_scrollController.hasClients && _isNearBottom) {
-      _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeOut,
-      );
-    }
+    if (!_scrollController.hasClients) return;
+    // reverse: true이므로 offset 0 = 맨 아래
+    _scrollController.animateTo(
+      0,
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOut,
+    );
   }
 
   @override
@@ -68,31 +71,6 @@ class _MessageListState extends ConsumerState<MessageList> {
     final sendingMessage = ref.watch(sendingMessageProvider);
     final isLoadingHistory = ref.watch(isLoadingHistoryProvider);
     final hasMoreHistory = ref.watch(hasMoreHistoryProvider);
-
-    // Listen for prepended messages to adjust scroll
-    ref.listen<int>(prependedCountProvider, (previous, next) {
-      if (next > 0 && _scrollController.hasClients) {
-        // 스크롤 위치 조정: prepend된 메시지 높이만큼 아래로 이동
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (_scrollController.hasClients) {
-            // 대략적인 메시지 높이 (평균 60px로 가정)
-            final addedHeight = next * 60.0;
-            final newOffset = (_scrollOffsetBeforePrepend ?? 0) + addedHeight;
-            _scrollController.jumpTo(newOffset.clamp(0, _scrollController.position.maxScrollExtent));
-            _scrollOffsetBeforePrepend = null;
-          }
-          // Reset prepended count
-          ref.read(prependedCountProvider.notifier).state = 0;
-        });
-      }
-    });
-
-    // Auto scroll only when new messages are added (not on every rebuild)
-    final currentCount = messages.length + (textBuffer.isNotEmpty ? 1 : 0);
-    if (currentCount > _lastMessageCount) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
-    }
-    _lastMessageCount = currentCount;
 
     if (messages.isEmpty && textBuffer.isEmpty) {
       return Container(
@@ -122,99 +100,136 @@ class _MessageListState extends ConsumerState<MessageList> {
       );
     }
 
-    // 로딩 인디케이터 표시 여부 (상단)
+    // 로딩 인디케이터 표시 여부 (리스트 끝 = reverse 시 화면 상단)
     final showLoadingIndicator = isLoadingHistory || hasMoreHistory;
 
-    return Container(
-      color: NordColors.nord0,
-      child: ListView.builder(
-        controller: _scrollController,
-        cacheExtent: 500, // Pre-render 500px above/below viewport
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        itemCount: (showLoadingIndicator ? 1 : 0) +
-            messages.length +
-            (sendingMessage != null ? 1 : 0) +
-            (textBuffer.isNotEmpty ? 1 : 0) +
-            (workStartTime != null ? 1 : 0),
-        itemBuilder: (context, index) {
-          // Loading indicator at top
-          if (showLoadingIndicator && index == 0) {
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Center(
-                child: isLoadingHistory
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: NordColors.nord3,
-                        ),
-                      )
-                    : const Text(
-                        '↑ 스크롤하여 이전 메시지 로드',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: NordColors.nord3,
-                        ),
+    // 아이템 카운트 계산
+    // reverse: true이므로 최신 아이템이 index 0
+    // 순서: [working] [streaming] [sending] [messages...] [loading indicator]
+    final hasWorking = workStartTime != null;
+    final hasStreaming = textBuffer.isNotEmpty;
+    final hasSending = sendingMessage != null;
+
+    final itemCount = (hasWorking ? 1 : 0) +
+        (hasStreaming ? 1 : 0) +
+        (hasSending ? 1 : 0) +
+        messages.length +
+        (showLoadingIndicator ? 1 : 0);
+
+    return Stack(
+      children: [
+        Container(
+          color: NordColors.nord0,
+          child: ListView.builder(
+            controller: _scrollController,
+            reverse: true, // 핵심: 아래에서 위로 렌더링
+            cacheExtent: 500,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            itemCount: itemCount,
+            itemBuilder: (context, index) {
+              int currentIdx = 0;
+
+              // 1. Working indicator (index 0) - 가장 아래 (최신)
+              if (hasWorking) {
+                if (index == currentIdx) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: WorkingIndicator(startTime: workStartTime),
+                  );
+                }
+                currentIdx++;
+              }
+
+              // 2. Streaming bubble
+              if (hasStreaming) {
+                if (index == currentIdx) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: StreamingBubble(content: textBuffer),
+                  );
+                }
+                currentIdx++;
+              }
+
+              // 3. Sending placeholder
+              if (hasSending) {
+                if (index == currentIdx) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: MessageBubble.sending(content: sendingMessage),
+                  );
+                }
+                currentIdx++;
+              }
+
+              // 4. Messages (역순: 최신이 먼저)
+              final messageStartIdx = currentIdx;
+              final messageEndIdx = messageStartIdx + messages.length;
+              if (index >= messageStartIdx && index < messageEndIdx) {
+                // 역순 인덱스: index가 작을수록 최신 메시지
+                final msgIndex = messages.length - 1 - (index - messageStartIdx);
+                final message = messages[msgIndex];
+                return RepaintBoundary(
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: switch (message) {
+                      UserTextMessage msg => MessageBubble.user(content: msg.content),
+                      AssistantTextMessage msg => MessageBubble.assistant(content: msg.content),
+                      ToolCallMessage msg => ToolCard(message: msg),
+                      ResultInfoMessage msg => ResultInfo(message: msg),
+                      ErrorMessage msg => MessageBubble.error(error: msg.error),
+                      UserResponseMessage msg => MessageBubble.response(
+                        responseType: msg.responseType,
+                        content: msg.content,
                       ),
-              ),
-            );
-          }
-
-          // Adjust index for messages
-          final msgIndex = showLoadingIndicator ? index - 1 : index;
-
-          // Messages
-          if (msgIndex >= 0 && msgIndex < messages.length) {
-            final message = messages[msgIndex];
-            return RepaintBoundary(
-              child: Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: switch (message) {
-                  UserTextMessage msg => MessageBubble.user(content: msg.content),
-                  AssistantTextMessage msg => MessageBubble.assistant(content: msg.content),
-                  ToolCallMessage msg => ToolCard(message: msg),
-                  ResultInfoMessage msg => ResultInfo(message: msg),
-                  ErrorMessage msg => MessageBubble.error(error: msg.error),
-                  UserResponseMessage msg => MessageBubble.response(
-                    responseType: msg.responseType,
-                    content: msg.content,
+                    },
                   ),
-                },
-              ),
-            );
-          }
+                );
+              }
 
-          // Sending message placeholder (전송 중...)
-          final sendingIdx = (showLoadingIndicator ? 1 : 0) + messages.length;
-          if (sendingMessage != null && index == sendingIdx) {
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: MessageBubble.sending(content: sendingMessage),
-            );
-          }
+              // 5. Loading indicator (맨 끝 = reverse 시 화면 상단)
+              if (showLoadingIndicator && index == itemCount - 1) {
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Center(
+                    child: isLoadingHistory
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: NordColors.nord3,
+                            ),
+                          )
+                        : const Text(
+                            '↑ 스크롤하여 이전 메시지 로드',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: NordColors.nord3,
+                            ),
+                          ),
+                  ),
+                );
+              }
 
-          // Streaming text buffer
-          final streamIdx = sendingIdx + (sendingMessage != null ? 1 : 0);
-          if (textBuffer.isNotEmpty && index == streamIdx) {
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: StreamingBubble(content: textBuffer),
-            );
-          }
-
-          // Working indicator
-          if (workStartTime != null) {
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: WorkingIndicator(startTime: workStartTime),
-            );
-          }
-
-          return const SizedBox.shrink();
-        },
-      ),
+              return const SizedBox.shrink();
+            },
+          ),
+        ),
+        // Scroll to bottom button
+        if (_showScrollButton)
+          Positioned(
+            right: 16,
+            bottom: 16,
+            child: FloatingActionButton.small(
+              onPressed: _scrollToBottom,
+              backgroundColor: NordColors.nord2,
+              foregroundColor: NordColors.nord4,
+              elevation: 2,
+              child: const Icon(Icons.keyboard_arrow_down, size: 24),
+            ),
+          ),
+      ],
     );
   }
 }

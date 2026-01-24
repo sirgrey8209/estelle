@@ -133,6 +133,25 @@ const deskStore = {
     return true;
   },
 
+  reorderDesks(deskIds) {
+    const store = this.load();
+    const reordered = [];
+    for (const id of deskIds) {
+      const desk = store.desks.find(d => d.deskId === id);
+      if (desk) reordered.push(desk);
+    }
+    // 누락된 데스크가 있으면 끝에 추가
+    for (const desk of store.desks) {
+      if (!reordered.find(d => d.deskId === desk.deskId)) {
+        reordered.push(desk);
+      }
+    }
+    store.desks = reordered;
+    this.save(store);
+    console.log(`[DeskStore] Reordered desks`);
+    return true;
+  },
+
   updateDeskStatus(deskId, status) {
     const store = this.load();
     const desk = store.desks.find(d => d.deskId === deskId);

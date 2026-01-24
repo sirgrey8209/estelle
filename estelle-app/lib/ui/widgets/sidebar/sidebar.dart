@@ -7,7 +7,6 @@ import '../../../state/providers/desk_provider.dart';
 import '../../../state/providers/claude_provider.dart';
 import 'desk_list_item.dart';
 import 'new_desk_dialog.dart';
-import 'desk_settings_dialog.dart';
 
 class Sidebar extends ConsumerWidget {
   const Sidebar({super.key});
@@ -72,12 +71,6 @@ class Sidebar extends ConsumerWidget {
                           // Select new desk
                           ref.read(selectedDeskProvider.notifier).select(desk);
                         },
-                        onDeskSettings: (desk) {
-                          showDialog(
-                            context: context,
-                            builder: (context) => DeskSettingsDialog(desk: desk),
-                          );
-                        },
                       );
                     },
                   ),
@@ -88,21 +81,19 @@ class Sidebar extends ConsumerWidget {
   }
 }
 
-class _PylonGroup extends StatelessWidget {
+class _PylonGroup extends ConsumerWidget {
   final PylonInfo pylon;
   final DeskInfo? selectedDesk;
   final ValueChanged<DeskInfo> onDeskSelected;
-  final ValueChanged<DeskInfo> onDeskSettings;
 
   const _PylonGroup({
     required this.pylon,
     this.selectedDesk,
     required this.onDeskSelected,
-    required this.onDeskSettings,
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -164,17 +155,31 @@ class _PylonGroup extends StatelessWidget {
                     ),
                   ),
                 )
-              : Column(
-                  children: pylon.desks.map((desk) {
+              : ReorderableListView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  buildDefaultDragHandles: false,
+                  itemCount: pylon.desks.length,
+                  onReorder: (oldIndex, newIndex) {
+                    if (newIndex > oldIndex) newIndex--;
+                    ref.read(pylonDesksProvider.notifier).reorderDesks(
+                      pylon.deviceId,
+                      oldIndex,
+                      newIndex,
+                    );
+                  },
+                  itemBuilder: (context, index) {
+                    final desk = pylon.desks[index];
                     final isSelected = selectedDesk?.deskId == desk.deskId &&
                         selectedDesk?.deviceId == desk.deviceId;
                     return DeskListItem(
+                      key: ValueKey(desk.deskId),
                       desk: desk,
                       isSelected: isSelected,
                       onTap: () => onDeskSelected(desk),
-                      onSettingsTap: isSelected ? () => onDeskSettings(desk) : null,
+                      index: index,
                     );
-                  }).toList(),
+                  },
                 ),
         ),
 

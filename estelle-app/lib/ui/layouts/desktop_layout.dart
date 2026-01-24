@@ -8,6 +8,7 @@ import '../../state/providers/desk_provider.dart';
 import '../widgets/sidebar/sidebar.dart';
 import '../widgets/chat/chat_area.dart';
 import '../widgets/settings/settings_dialog.dart';
+import '../widgets/common/loading_overlay.dart';
 
 class DesktopLayout extends ConsumerWidget {
   const DesktopLayout({super.key});
@@ -16,33 +17,43 @@ class DesktopLayout extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final connectionAsync = ref.watch(connectionStateProvider);
     final pylons = ref.watch(pylonDesksProvider);
+    final loadingState = ref.watch(loadingStateProvider);
 
-    return Scaffold(
-      body: Column(
-        children: [
-          // Header
-          _Header(
-            isConnected: connectionAsync.valueOrNull ?? ref.read(relayServiceProvider).isConnected,
-            pylons: pylons,
+    return Stack(
+      children: [
+        Scaffold(
+          body: Column(
+            children: [
+              // Header
+              _Header(
+                isConnected: connectionAsync.valueOrNull ?? ref.read(relayServiceProvider).isConnected,
+                pylons: pylons,
+              ),
+
+              // Main content
+              Expanded(
+                child: Row(
+                  children: [
+                    // Sidebar
+                    const Sidebar(),
+
+                    // Divider
+                    const VerticalDivider(width: 1, color: NordColors.nord2),
+
+                    // Chat area
+                    const Expanded(child: ChatArea()),
+                  ],
+                ),
+              ),
+            ],
           ),
-
-          // Main content
-          Expanded(
-            child: Row(
-              children: [
-                // Sidebar
-                const Sidebar(),
-
-                // Divider
-                const VerticalDivider(width: 1, color: NordColors.nord2),
-
-                // Chat area
-                const Expanded(child: ChatArea()),
-              ],
-            ),
+        ),
+        // Loading overlay (connecting, loadingDesks, loadingMessages)
+        if (loadingState != LoadingState.ready)
+          Positioned.fill(
+            child: LoadingOverlay(state: loadingState),
           ),
-        ],
-      ),
+      ],
     );
   }
 }

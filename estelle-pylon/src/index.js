@@ -372,6 +372,14 @@ class Pylon {
       return;
     }
 
+    if (type === 'desk_reorder') {
+      const { deskIds } = payload || {};
+      if (Array.isArray(deskIds) && deskStore.reorderDesks(deskIds)) {
+        this.broadcastDeskList();
+      }
+      return;
+    }
+
     if (type === 'desk_sync') {
       const { deskId } = payload || {};
       if (deskId) {
@@ -1228,7 +1236,7 @@ class Pylon {
     // 모든 앱에 브로드캐스트
     this.send({
       type: 'deploy_status',
-      broadcast: 'apps',
+      broadcast: 'app',
       payload: {
         deviceId: this.deviceId,
         tasks: { ...tasks },
@@ -1354,7 +1362,7 @@ class Pylon {
   sendDeployLog(line) {
     this.send({
       type: 'deploy_log',
-      broadcast: 'apps',
+      broadcast: 'app',
       payload: {
         deviceId: this.deviceId,
         line,

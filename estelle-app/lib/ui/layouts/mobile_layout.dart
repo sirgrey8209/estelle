@@ -7,7 +7,22 @@ import '../../state/providers/desk_provider.dart';
 import '../../state/providers/claude_provider.dart';
 import '../widgets/chat/chat_area.dart';
 import '../widgets/sidebar/new_desk_dialog.dart';
+import '../widgets/sidebar/desk_list_item.dart';
 import '../widgets/settings/settings_screen.dart';
+import '../widgets/common/loading_overlay.dart';
+
+// Permission mode constants
+const _permissionModes = ['default', 'acceptEdits', 'bypassPermissions'];
+const _permissionIcons = {
+  'default': Icons.security,
+  'acceptEdits': Icons.edit_note,
+  'bypassPermissions': Icons.warning_amber,
+};
+const _permissionColors = {
+  'default': NordColors.nord4,
+  'acceptEdits': NordColors.nord8,
+  'bypassPermissions': NordColors.nord12,
+};
 
 class MobileLayout extends ConsumerStatefulWidget {
   const MobileLayout({super.key});
@@ -43,43 +58,72 @@ class _MobileLayoutState extends ConsumerState<MobileLayout> {
     _dragStartPage = _pageController.page;
   }
 
+  // 드래그 비율 → lerp된 페이지 오프셋 (0~20%: 0, 20~50%: 0~1)
+  double _dragToPageOffset(double dragRatio) {
+    const deadZone = 0.2;
+    const maxZone = 0.5;
+
+    if (dragRatio.abs() < deadZone) return 0;
+
+    final sign = dragRatio < 0 ? -1.0 : 1.0;
+    final ratio = (dragRatio.abs() - deadZone) / (maxZone - deadZone);
+    return sign * ratio.clamp(0.0, 1.0);
+  }
+
   void _onPointerMove(PointerMoveEvent event) {
     if (_dragStartX == null || _dragStartPage == null) return;
     if (!_pageController.hasClients) return;
 
     final viewportWidth = _pageController.position.viewportDimension;
     final delta = event.position.dx - _dragStartX!;
-    final pageDelta = -delta / viewportWidth;
+    final dragRatio = -delta / viewportWidth;
 
-    final newPage = (_dragStartPage! + pageDelta).clamp(0.0, _pageCount - 1.0);
+    final pageOffset = _dragToPageOffset(dragRatio);
+    final newPage = (_dragStartPage! + pageOffset).clamp(0.0, _pageCount - 1.0);
     _pageController.jumpTo(newPage * viewportWidth);
   }
 
   void _onPointerUp(PointerUpEvent event) {
-    if (_dragStartX == null) return;
+    if (_dragStartX == null || _dragStartPage == null) return;
     if (!_pageController.hasClients) return;
 
-    final delta = event.position.dx - _dragStartX!;
     final viewportWidth = _pageController.position.viewportDimension;
+    final delta = event.position.dx - _dragStartX!;
+    final dragRatio = -delta / viewportWidth;
+    final pageOffset = _dragToPageOffset(dragRatio);
+    final startPage = _dragStartPage!.round();
 
     _dragStartX = null;
     _dragStartPage = null;
 
-    // Determine target page based on position and drag direction
-    final currentPosition = _pageController.page ?? _currentPage.toDouble();
+    // pageOffset이 1이면 (= 50% 이상 드래그) 다음 탭으로 이동
     int targetPage;
-
-    if (delta.abs() > viewportWidth * 0.2) {
-      // Dragged more than 20% - go to next/prev page
-      targetPage = delta > 0
-          ? (currentPosition - 1).round().clamp(0, _pageCount - 1)
-          : (currentPosition + 1).round().clamp(0, _pageCount - 1);
+    if (pageOffset.abs() >= 1.0) {
+      targetPage = pageOffset > 0
+          ? (startPage + 1).clamp(0, _pageCount - 1)
+          : (startPage - 1).clamp(0, _pageCount - 1);
     } else {
-      // Snap to nearest page
-      targetPage = currentPosition.round().clamp(0, _pageCount - 1);
+      targetPage = startPage;
     }
 
     _goToPage(targetPage);
+  }
+
+  /// Check if overlay should be shown for current page
+  bool _shouldShowOverlay(LoadingState loadingState, int page) {
+    switch (page) {
+      case 0: // Desks tab: show connecting/loadingDesks
+        return loadingState == LoadingState.connecting ||
+            loadingState == LoadingState.loadingDesks;
+      case 1: // Claude tab: show connecting/loadingDesks/loadingMessages
+        return loadingState == LoadingState.connecting ||
+            loadingState == LoadingState.loadingDesks ||
+            loadingState == LoadingState.loadingMessages;
+      case 2: // Settings tab: show connecting only
+        return loadingState == LoadingState.connecting;
+      default:
+        return false;
+    }
   }
 
   @override
@@ -87,6 +131,7 @@ class _MobileLayoutState extends ConsumerState<MobileLayout> {
     final connectionAsync = ref.watch(connectionStateProvider);
     final isConnected = connectionAsync.valueOrNull ?? ref.read(relayServiceProvider).isConnected;
     final selectedDesk = ref.watch(selectedDeskProvider);
+    final loadingState = ref.watch(loadingStateProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -140,78 +185,93 @@ class _MobileLayoutState extends ConsumerState<MobileLayout> {
           ],
         ),
         actions: [
-          // Connection status + pylon icons
-          Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: NordColors.nord2,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    isConnected ? 'Connected' : 'Disconnected',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: isConnected ? NordColors.nord14 : NordColors.nord11,
+          if (_currentPage == 1 && selectedDesk != null) ...[
+            // Claude tab: permission + menu buttons
+            _PermissionButton(desk: selectedDesk),
+            _SessionMenuButton(desk: selectedDesk),
+          ] else ...[
+            // Other tabs: connection status
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: NordColors.nord2,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      isConnected ? 'Connected' : 'Disconnected',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: isConnected ? NordColors.nord14 : NordColors.nord11,
+                      ),
                     ),
                   ),
-                ),
-                if (isConnected) ...[
-                  const SizedBox(width: 6),
-                  ...ref.watch(pylonDesksProvider).values.map((pylon) {
-                    return Padding(
-                      padding: const EdgeInsets.only(left: 2),
-                      child: Text(pylon.icon, style: const TextStyle(fontSize: 14)),
-                    );
-                  }),
-                ],
-              ],
-            ),
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          // Tab navigation bar
-          _TabBar(
-            currentPage: _currentPage,
-            onTabSelected: _goToPage,
-          ),
-          // Page content
-          Expanded(
-            child: Listener(
-              onPointerDown: _onPointerDown,
-              onPointerMove: _onPointerMove,
-              onPointerUp: _onPointerUp,
-              child: PageView(
-                controller: _pageController,
-                physics: const NeverScrollableScrollPhysics(),
-                onPageChanged: (page) => setState(() => _currentPage = page),
-                children: [
-                  // Page 0: Desk list
-                  _DeskListPage(
-                    onDeskSelected: (desk) {
-                      // 데스크 선택 처리 (저장 + 로드 + sync 요청)
-                      final currentDesk = ref.read(selectedDeskProvider);
-                      ref.read(claudeMessagesProvider.notifier)
-                          .onDeskSelected(currentDesk, desk);
-                      ref.read(selectedDeskProvider.notifier).select(desk);
-                      // Go to chat
-                      _goToPage(1);
-                    },
-                  ),
-                  // Page 1: Chat
-                  const ChatArea(),
-                  // Page 2: Settings
-                  const SettingsScreen(),
+                  if (isConnected) ...[
+                    const SizedBox(width: 6),
+                    ...ref.watch(pylonDesksProvider).values.map((pylon) {
+                      return Padding(
+                        padding: const EdgeInsets.only(left: 2),
+                        child: Text(pylon.icon, style: const TextStyle(fontSize: 14)),
+                      );
+                    }),
+                  ],
                 ],
               ),
             ),
+          ],
+        ],
+      ),
+      body: Stack(
+        children: [
+          Column(
+            children: [
+              // Tab navigation bar
+              _TabBar(
+                currentPage: _currentPage,
+                onTabSelected: _goToPage,
+              ),
+              // Page content
+              Expanded(
+                child: Listener(
+                  onPointerDown: _onPointerDown,
+                  onPointerMove: _onPointerMove,
+                  onPointerUp: _onPointerUp,
+                  child: PageView(
+                    controller: _pageController,
+                    physics: const NeverScrollableScrollPhysics(),
+                    onPageChanged: (page) => setState(() => _currentPage = page),
+                    children: [
+                      // Page 0: Desk list
+                      _DeskListPage(
+                        onDeskSelected: (desk) {
+                          // 데스크 선택 처리 (저장 + 로드 + sync 요청)
+                          final currentDesk = ref.read(selectedDeskProvider);
+                          ref.read(claudeMessagesProvider.notifier)
+                              .onDeskSelected(currentDesk, desk);
+                          ref.read(selectedDeskProvider.notifier).select(desk);
+                          // Go to chat
+                          _goToPage(1);
+                        },
+                      ),
+                      // Page 1: Chat (hide header on mobile)
+                      const ChatArea(showHeader: false),
+                      // Page 2: Settings
+                      const SettingsScreen(),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
+          // Loading overlay (conditional per page)
+          if (_shouldShowOverlay(loadingState, _currentPage))
+            Positioned.fill(
+              child: LoadingOverlay(state: loadingState),
+            ),
         ],
       ),
     );
@@ -415,76 +475,34 @@ class _DeskListPage extends ConsumerWidget {
                 ),
               )
             else
-              ...pylon.desks.map((desk) {
-                final isSelected = selectedDesk?.deskId == desk.deskId;
-                return Padding(
-                  padding: const EdgeInsets.only(left: 16, bottom: 4),
-                  child: Material(
-                    color: isSelected ? NordColors.nord10 : NordColors.nord1,
-                    borderRadius: BorderRadius.circular(8),
-                    child: InkWell(
+              Padding(
+                padding: const EdgeInsets.only(left: 8),
+                child: ReorderableListView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  buildDefaultDragHandles: false,
+                  itemCount: pylon.desks.length,
+                  onReorder: (oldIndex, newIndex) {
+                    if (newIndex > oldIndex) newIndex--;
+                    ref.read(pylonDesksProvider.notifier).reorderDesks(
+                      pylon.deviceId,
+                      oldIndex,
+                      newIndex,
+                    );
+                  },
+                  itemBuilder: (context, index) {
+                    final desk = pylon.desks[index];
+                    final isSelected = selectedDesk?.deskId == desk.deskId;
+                    return DeskListItem(
+                      key: ValueKey(desk.deskId),
+                      desk: desk,
+                      isSelected: isSelected,
                       onTap: () => onDeskSelected(desk),
-                      borderRadius: BorderRadius.circular(8),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 12,
-                        ),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    desk.deskName,
-                                    style: TextStyle(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w500,
-                                      color: desk.isWorking
-                                          ? NordColors.nord13
-                                          : isSelected
-                                              ? NordColors.nord6
-                                              : NordColors.nord4,
-                                    ),
-                                  ),
-                                  if (desk.workingDir.isNotEmpty) ...[
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      desk.workingDir,
-                                      style: const TextStyle(
-                                        fontSize: 11,
-                                        color: NordColors.nord3,
-                                      ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ],
-                                ],
-                              ),
-                            ),
-                            if (desk.isWorking)
-                              Container(
-                                width: 8,
-                                height: 8,
-                                decoration: const BoxDecoration(
-                                  color: NordColors.nord13,
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                            const SizedBox(width: 8),
-                            const Icon(
-                              Icons.chevron_right,
-                              color: NordColors.nord3,
-                              size: 20,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              }),
+                      index: index,
+                    );
+                  },
+                ),
+              ),
 
             const SizedBox(height: 16),
           ],
@@ -497,6 +515,125 @@ class _DeskListPage extends ConsumerWidget {
     showDialog(
       context: context,
       builder: (context) => NewDeskDialog(deviceId: deviceId),
+    );
+  }
+}
+
+/// Permission mode button for mobile AppBar
+class _PermissionButton extends ConsumerWidget {
+  final DeskInfo desk;
+
+  const _PermissionButton({required this.desk});
+
+  void _cyclePermissionMode(WidgetRef ref) {
+    final currentMode = ref.read(permissionModeProvider);
+    final currentIndex = _permissionModes.indexOf(currentMode);
+    final nextIndex = (currentIndex + 1) % _permissionModes.length;
+    final nextMode = _permissionModes[nextIndex];
+
+    ref.read(permissionModeProvider.notifier).state = nextMode;
+    ref.read(relayServiceProvider).setPermissionMode(nextMode);
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final currentMode = ref.watch(permissionModeProvider);
+
+    return IconButton(
+      onPressed: () => _cyclePermissionMode(ref),
+      icon: Icon(
+        _permissionIcons[currentMode],
+        color: _permissionColors[currentMode],
+        size: 20,
+      ),
+    );
+  }
+}
+
+/// Session menu button for mobile AppBar
+class _SessionMenuButton extends ConsumerWidget {
+  final DeskInfo desk;
+
+  const _SessionMenuButton({required this.desk});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return PopupMenuButton<String>(
+      icon: const Icon(Icons.more_vert, color: NordColors.nord5, size: 20),
+      color: NordColors.nord2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      onSelected: (value) => _handleMenuAction(context, ref, value),
+      itemBuilder: (context) => [
+        const PopupMenuItem(
+          value: 'new_session',
+          child: Row(
+            children: [
+              Icon(Icons.add_circle_outline, color: NordColors.nord5, size: 18),
+              SizedBox(width: 8),
+              Text('새 세션', style: TextStyle(color: NordColors.nord5)),
+            ],
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'compact',
+          child: Row(
+            children: [
+              Icon(Icons.compress, color: NordColors.nord5, size: 18),
+              SizedBox(width: 8),
+              Text('컴팩트', style: TextStyle(color: NordColors.nord5)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _handleMenuAction(BuildContext context, WidgetRef ref, String action) {
+    switch (action) {
+      case 'new_session':
+        _showNewSessionDialog(context, ref);
+        break;
+      case 'compact':
+        ref.read(relayServiceProvider).sendClaudeControl(
+          desk.deviceId,
+          desk.deskId,
+          'compact',
+        );
+        break;
+    }
+  }
+
+  void _showNewSessionDialog(BuildContext context, WidgetRef ref) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: NordColors.nord1,
+        title: const Text('새 세션', style: TextStyle(color: NordColors.nord5)),
+        content: const Text(
+          '현재 세션을 종료하고 새 세션을 시작할까요?\n기존 대화 내용은 삭제됩니다.',
+          style: TextStyle(color: NordColors.nord4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('취소', style: TextStyle(color: NordColors.nord4)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: NordColors.nord11),
+            onPressed: () {
+              ref.read(relayServiceProvider).sendClaudeControl(
+                desk.deviceId,
+                desk.deskId,
+                'new_session',
+              );
+              ref.read(claudeMessagesProvider.notifier).clearMessages();
+              ref.read(claudeMessagesProvider.notifier).clearDeskCache(desk.deskId);
+              Navigator.pop(context);
+            },
+            child: const Text('새 세션 시작'),
+          ),
+        ],
+      ),
     );
   }
 }

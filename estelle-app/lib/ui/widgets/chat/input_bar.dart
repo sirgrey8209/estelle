@@ -115,12 +115,15 @@ class _InputBarState extends ConsumerState<InputBar> {
                 }
                 return KeyEventResult.ignored;
               },
-              child: TextField(
-                controller: _controller,
-                focusNode: _focusNode,
-                enabled: true, // 항상 활성화 (미리 입력 가능)
-                maxLines: null,
-                minLines: 1,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 150), // 약 6줄 제한
+                child: TextField(
+                  controller: _controller,
+                  focusNode: _focusNode,
+                  enabled: true, // 항상 활성화 (미리 입력 가능)
+                  maxLines: null,
+                  minLines: 1,
+                  scrollPhysics: const BouncingScrollPhysics(),
                 style: const TextStyle(
                   fontSize: 14,
                   color: NordColors.nord5,
@@ -142,9 +145,10 @@ class _InputBarState extends ConsumerState<InputBar> {
                     borderRadius: BorderRadius.circular(6),
                     borderSide: const BorderSide(color: NordColors.nord9),
                   ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
                   ),
                 ),
               ),

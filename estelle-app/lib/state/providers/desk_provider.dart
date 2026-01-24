@@ -207,6 +207,26 @@ class PylonDesksNotifier extends StateNotifier<Map<int, PylonInfo>> {
   void createDesk(int deviceId, String name, String workingDir) {
     _relay.createDesk(deviceId, name, workingDir);
   }
+
+  /// 로컬 상태 먼저 업데이트 후 서버에 요청
+  void reorderDesks(int deviceId, int oldIndex, int newIndex) {
+    final pylon = state[deviceId];
+    if (pylon == null) return;
+
+    final desks = List<DeskInfo>.from(pylon.desks);
+    final desk = desks.removeAt(oldIndex);
+    desks.insert(newIndex, desk);
+
+    // 로컬 상태 즉시 업데이트
+    state = {
+      ...state,
+      deviceId: pylon.copyWith(desks: desks),
+    };
+
+    // 서버에 요청
+    final deskIds = desks.map((d) => d.deskId).toList();
+    _relay.reorderDesks(deviceId, deskIds);
+  }
 }
 
 final pylonDesksProvider = StateNotifierProvider<PylonDesksNotifier, Map<int, PylonInfo>>((ref) {

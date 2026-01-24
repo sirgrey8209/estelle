@@ -85,14 +85,11 @@ class _DeployHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 연결된 Pylon만 필터링
-    final connectedPylons = pylons.where((p) => p.isConnected).toList();
-
     // 기본 선택: Stella(deviceId=1) 우선, 없으면 첫 번째
     int? selectedPylonId = status.selectedPylonId;
-    if (selectedPylonId == null && connectedPylons.isNotEmpty) {
-      final stella = connectedPylons.where((p) => p.deviceId == 1).firstOrNull;
-      selectedPylonId = stella?.deviceId ?? connectedPylons.first.deviceId;
+    if (selectedPylonId == null && pylons.isNotEmpty) {
+      final stella = pylons.where((p) => p.deviceId == 1).firstOrNull;
+      selectedPylonId = stella?.deviceId ?? pylons.first.deviceId;
       // 자동 선택 (UI에서만, 실제 선택은 빌드 시작할 때)
     }
 
@@ -102,7 +99,7 @@ class _DeployHeader extends StatelessWidget {
         Expanded(
           child: _PylonDropdown(
             selectedPylonId: selectedPylonId,
-            pylons: connectedPylons,
+            pylons: pylons,
             enabled: status.phase == DeployPhase.idle ||
                 status.phase == DeployPhase.error,
             onChanged: (id) {

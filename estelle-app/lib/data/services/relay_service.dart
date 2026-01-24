@@ -83,6 +83,12 @@ class RelayService {
         return;
       }
 
+      // 디버그: deploy_ 메시지 로깅
+      final type = json['type'] as String?;
+      if (type != null && type.startsWith('deploy_')) {
+        print('[RELAY] Received: $type');
+      }
+
       _messageController.add(json);
     } catch (e) {
       print('Message parse error: $e');
@@ -199,6 +205,14 @@ class RelayService {
       'type': 'desk_delete',
       'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
       'payload': {'deskId': deskId},
+    });
+  }
+
+  void reorderDesks(int deviceId, List<String> deskIds) {
+    send({
+      'type': 'desk_reorder',
+      'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
+      'payload': {'deskIds': deskIds},
     });
   }
 
