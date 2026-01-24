@@ -4,19 +4,20 @@ import '../../../core/constants/colors.dart';
 import '../../../data/models/claude_usage.dart';
 import '../../../state/providers/settings_provider.dart';
 
-/// Claude 사용량 표시 카드
+/// Claude 사용량 표시 카드 (Pylon 누적 기반)
 class ClaudeUsageCard extends ConsumerWidget {
   const ClaudeUsageCard({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final usageAsync = ref.watch(claudeUsageProvider);
+    final usage = ref.watch(claudeUsageProvider);
 
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: NordColors.nord0,
+        color: NordColors.nord1,
         borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: NordColors.nord3, width: 1),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -24,226 +25,134 @@ class ClaudeUsageCard extends ConsumerWidget {
           // Header
           Row(
             children: [
+              const Icon(
+                Icons.analytics_outlined,
+                color: NordColors.nord10,
+                size: 18,
+              ),
+              const SizedBox(width: 8),
               const Text(
                 'Claude Usage',
                 style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
                   color: NordColors.nord5,
                 ),
               ),
               const Spacer(),
-              IconButton(
-                icon: usageAsync.isLoading
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor:
-                              AlwaysStoppedAnimation<Color>(NordColors.nord4),
-                        ),
-                      )
-                    : const Icon(Icons.refresh, size: 20, color: NordColors.nord4),
-                onPressed: usageAsync.isLoading
-                    ? null
-                    : () => ref.read(claudeUsageProvider.notifier).requestUsage(),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-              ),
+              // 세션 카운트
+              if (usage.sessionCount > 0)
+                Text(
+                  '${usage.sessionCount} sessions',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: NordColors.nord4,
+                  ),
+                ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
 
-          // Usage gauges
-          usageAsync.when(
-            loading: () => const Center(
-              child: Padding(
-                padding: EdgeInsets.all(20),
-                child: CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation<Color>(NordColors.nord10),
-                ),
-              ),
-            ),
-            error: (error, _) => _ErrorMessage(
-              message: error.toString(),
-              onRetry: () =>
-                  ref.read(claudeUsageProvider.notifier).requestUsage(),
-            ),
-            data: (usage) {
-              if (usage.hasError) {
-                return _ErrorMessage(
-                  message: usage.error!,
-                  onRetry: () =>
-                      ref.read(claudeUsageProvider.notifier).requestUsage(),
-                );
-              }
-              return _UsageGauges(usage: usage);
-            },
-          ),
+          // 사용량 정보
+          _UsageStats(usage: usage),
         ],
       ),
     );
   }
 }
 
-class _UsageGauges extends StatelessWidget {
+class _UsageStats extends StatelessWidget {
   final ClaudeUsage usage;
 
-  const _UsageGauges({required this.usage});
+  const _UsageStats({required this.usage});
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: [
-        _UsageGauge(
-          label: '5h',
-          percentage: usage.usage5h,
-          resetsAt: usage.resets5h,
+    if (usage.sessionCount == 0) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.symmetric(vertical: 12),
+          child: Text(
+            'No usage data yet',
+            style: TextStyle(
+              fontSize: 12,
+              color: NordColors.nord4,
+            ),
+          ),
         ),
-        const SizedBox(width: 24),
-        _UsageGauge(
-          label: '7d',
-          percentage: usage.usage7d,
-          resetsAt: usage.resets7d,
+      );
+    }
+
+    return Row(
+      children: [
+        // 비용
+        Expanded(
+          child: _StatItem(
+            icon: Icons.attach_money,
+            label: 'Cost',
+            value: usage.formattedCost,
+            color: NordColors.nord13,
+          ),
+        ),
+        // 토큰
+        Expanded(
+          child: _StatItem(
+            icon: Icons.token,
+            label: 'Tokens',
+            value: usage.formattedTokens,
+            color: NordColors.nord10,
+          ),
+        ),
+        // 캐시 효율
+        Expanded(
+          child: _StatItem(
+            icon: Icons.cached,
+            label: 'Cache',
+            value: '${usage.cacheEfficiency.toStringAsFixed(0)}%',
+            color: NordColors.nord14,
+          ),
         ),
       ],
     );
   }
 }
 
-class _UsageGauge extends StatelessWidget {
+class _StatItem extends StatelessWidget {
+  final IconData icon;
   final String label;
-  final double percentage;
-  final DateTime? resetsAt;
+  final String value;
+  final Color color;
 
-  const _UsageGauge({
+  const _StatItem({
+    required this.icon,
     required this.label,
-    required this.percentage,
-    this.resetsAt,
+    required this.value,
+    required this.color,
   });
-
-  Color _getColor(double pct) {
-    if (pct >= 90) return NordColors.nord11;
-    if (pct >= 70) return NordColors.nord12;
-    if (pct >= 50) return NordColors.nord13;
-    return NordColors.nord14;
-  }
-
-  String _formatResetTime(DateTime? time) {
-    if (time == null) return '';
-    final now = DateTime.now();
-    final diff = time.difference(now);
-    if (diff.isNegative) return 'reset';
-    if (diff.inHours > 0) return '${diff.inHours}h';
-    if (diff.inMinutes > 0) return '${diff.inMinutes}m';
-    return 'soon';
-  }
 
   @override
   Widget build(BuildContext context) {
-    final color = _getColor(percentage);
-    final clampedPercentage = percentage.clamp(0.0, 100.0);
-
     return Column(
       children: [
-        SizedBox(
-          width: 80,
-          height: 80,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              // Background circle
-              SizedBox(
-                width: 80,
-                height: 80,
-                child: CircularProgressIndicator(
-                  value: 1.0,
-                  strokeWidth: 8,
-                  backgroundColor: NordColors.nord2,
-                  valueColor:
-                      const AlwaysStoppedAnimation<Color>(NordColors.nord2),
-                ),
-              ),
-              // Progress circle
-              SizedBox(
-                width: 80,
-                height: 80,
-                child: CircularProgressIndicator(
-                  value: clampedPercentage / 100,
-                  strokeWidth: 8,
-                  backgroundColor: Colors.transparent,
-                  valueColor: AlwaysStoppedAnimation<Color>(color),
-                ),
-              ),
-              // Percentage text
-              Text(
-                '${percentage.toStringAsFixed(0)}%',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: color,
-                ),
-              ),
-            ],
+        Icon(icon, color: color, size: 20),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: color,
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 2),
         Text(
           label,
           style: const TextStyle(
-            fontSize: 14,
+            fontSize: 10,
             color: NordColors.nord4,
           ),
         ),
-        if (resetsAt != null) ...[
-          const SizedBox(height: 2),
-          Text(
-            _formatResetTime(resetsAt),
-            style: const TextStyle(
-              fontSize: 11,
-              color: NordColors.nord3,
-            ),
-          ),
-        ],
       ],
-    );
-  }
-}
-
-class _ErrorMessage extends StatelessWidget {
-  final String message;
-  final VoidCallback onRetry;
-
-  const _ErrorMessage({
-    required this.message,
-    required this.onRetry,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        children: [
-          const Icon(Icons.error_outline, color: NordColors.nord11, size: 32),
-          const SizedBox(height: 8),
-          Text(
-            message,
-            style: const TextStyle(color: NordColors.nord11, fontSize: 12),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 12),
-          TextButton.icon(
-            icon: const Icon(Icons.refresh, size: 16),
-            label: const Text('재시도'),
-            onPressed: onRetry,
-            style: TextButton.styleFrom(
-              foregroundColor: NordColors.nord10,
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

@@ -1,52 +1,67 @@
-/// Claude 사용량 데이터 모델
+/// Claude 사용량 데이터 모델 (Pylon 누적 기반)
 class ClaudeUsage {
-  final double usage5h;
-  final double usage7d;
-  final DateTime? resets5h;
-  final DateTime? resets7d;
-  final String? error;
-  final DateTime fetchedAt;
+  final double totalCostUsd;
+  final int totalInputTokens;
+  final int totalOutputTokens;
+  final int totalCacheReadTokens;
+  final int totalCacheCreationTokens;
+  final int sessionCount;
+  final DateTime? lastUpdated;
 
   const ClaudeUsage({
-    required this.usage5h,
-    required this.usage7d,
-    this.resets5h,
-    this.resets7d,
-    this.error,
-    required this.fetchedAt,
+    required this.totalCostUsd,
+    required this.totalInputTokens,
+    required this.totalOutputTokens,
+    required this.totalCacheReadTokens,
+    required this.totalCacheCreationTokens,
+    required this.sessionCount,
+    this.lastUpdated,
   });
 
-  factory ClaudeUsage.fromJson(Map<String, dynamic> json) {
+  factory ClaudeUsage.fromPylonStatus(Map<String, dynamic> json) {
     return ClaudeUsage(
-      usage5h: (json['usage5h'] as num?)?.toDouble() ?? 0.0,
-      usage7d: (json['usage7d'] as num?)?.toDouble() ?? 0.0,
-      resets5h: json['resets5h'] != null
-          ? DateTime.tryParse(json['resets5h'] as String)
+      totalCostUsd: (json['totalCostUsd'] as num?)?.toDouble() ?? 0.0,
+      totalInputTokens: (json['totalInputTokens'] as num?)?.toInt() ?? 0,
+      totalOutputTokens: (json['totalOutputTokens'] as num?)?.toInt() ?? 0,
+      totalCacheReadTokens: (json['totalCacheReadTokens'] as num?)?.toInt() ?? 0,
+      totalCacheCreationTokens: (json['totalCacheCreationTokens'] as num?)?.toInt() ?? 0,
+      sessionCount: (json['sessionCount'] as num?)?.toInt() ?? 0,
+      lastUpdated: json['lastUpdated'] != null
+          ? DateTime.tryParse(json['lastUpdated'] as String)
           : null,
-      resets7d: json['resets7d'] != null
-          ? DateTime.tryParse(json['resets7d'] as String)
-          : null,
-      error: json['error'] as String?,
-      fetchedAt: DateTime.now(),
     );
   }
 
   factory ClaudeUsage.empty() {
-    return ClaudeUsage(
-      usage5h: 0.0,
-      usage7d: 0.0,
-      fetchedAt: DateTime.now(),
+    return const ClaudeUsage(
+      totalCostUsd: 0.0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalCacheReadTokens: 0,
+      totalCacheCreationTokens: 0,
+      sessionCount: 0,
     );
   }
 
-  factory ClaudeUsage.error(String message) {
-    return ClaudeUsage(
-      usage5h: 0.0,
-      usage7d: 0.0,
-      error: message,
-      fetchedAt: DateTime.now(),
-    );
+  /// 총 토큰 수
+  int get totalTokens => totalInputTokens + totalOutputTokens;
+
+  /// 캐시 효율 (%)
+  double get cacheEfficiency {
+    if (totalInputTokens == 0) return 0;
+    return (totalCacheReadTokens / totalInputTokens) * 100;
   }
 
-  bool get hasError => error != null;
+  /// 포맷된 비용
+  String get formattedCost => '\$${totalCostUsd.toStringAsFixed(4)}';
+
+  /// 포맷된 토큰 (K 단위)
+  String get formattedTokens {
+    if (totalTokens >= 1000000) {
+      return '${(totalTokens / 1000000).toStringAsFixed(1)}M';
+    } else if (totalTokens >= 1000) {
+      return '${(totalTokens / 1000).toStringAsFixed(1)}K';
+    }
+    return totalTokens.toString();
+  }
 }

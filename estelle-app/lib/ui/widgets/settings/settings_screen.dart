@@ -1,31 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/constants/colors.dart';
-import '../../../state/providers/settings_provider.dart';
 import 'claude_usage_card.dart';
 import 'deploy_section.dart';
 import 'app_update_section.dart';
 
 /// 설정 화면 메인 위젯
-class SettingsScreen extends ConsumerStatefulWidget {
+class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
   @override
-  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
-}
-
-class _SettingsScreenState extends ConsumerState<SettingsScreen> {
-  @override
-  void initState() {
-    super.initState();
-    // 화면 진입 시 사용량 요청
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(claudeUsageProvider.notifier).requestUsage();
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Container(
       color: NordColors.nord0,
       child: const SingleChildScrollView(
@@ -46,25 +31,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 }
 
 /// 설정 화면 내용 (Dialog/Screen 공용)
-class SettingsContent extends ConsumerStatefulWidget {
+class SettingsContent extends ConsumerWidget {
   const SettingsContent({super.key});
 
   @override
-  ConsumerState<SettingsContent> createState() => _SettingsContentState();
-}
-
-class _SettingsContentState extends ConsumerState<SettingsContent> {
-  @override
-  void initState() {
-    super.initState();
-    // 화면 진입 시 사용량 요청
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(claudeUsageProvider.notifier).requestUsage();
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return const Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,

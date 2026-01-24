@@ -8,36 +8,32 @@ import 'desk_provider.dart';
 
 // ============ Claude Usage ============
 
-/// Claude 사용량 상태
+/// Claude 사용량 상태 (Pylon에서 누적된 값)
 final claudeUsageProvider =
-    StateNotifierProvider<ClaudeUsageNotifier, AsyncValue<ClaudeUsage>>((ref) {
+    StateNotifierProvider<ClaudeUsageNotifier, ClaudeUsage>((ref) {
   return ClaudeUsageNotifier(ref);
 });
 
-class ClaudeUsageNotifier extends StateNotifier<AsyncValue<ClaudeUsage>> {
+class ClaudeUsageNotifier extends StateNotifier<ClaudeUsage> {
   final Ref _ref;
   StreamSubscription? _subscription;
 
-  ClaudeUsageNotifier(this._ref) : super(const AsyncValue.loading()) {
+  ClaudeUsageNotifier(this._ref) : super(ClaudeUsage.empty()) {
     _listenToMessages();
   }
 
   void _listenToMessages() {
     _subscription = _ref.read(relayServiceProvider).messageStream.listen((data) {
       final type = data['type'] as String?;
-      if (type == 'claude_usage_result') {
+      // pylon_status에서 사용량 받기
+      if (type == 'pylon_status') {
         final payload = data['payload'] as Map<String, dynamic>?;
-        if (payload != null) {
-          state = AsyncValue.data(ClaudeUsage.fromJson(payload));
+        final claudeUsage = payload?['claudeUsage'] as Map<String, dynamic>?;
+        if (claudeUsage != null) {
+          state = ClaudeUsage.fromPylonStatus(claudeUsage);
         }
       }
     });
-  }
-
-  /// Claude 사용량 요청
-  void requestUsage() {
-    state = const AsyncValue.loading();
-    _ref.read(relayServiceProvider).requestClaudeUsage();
   }
 
   @override

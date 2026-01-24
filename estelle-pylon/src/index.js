@@ -44,6 +44,16 @@ class Pylon {
     this.fileSimulator = null;
     // 데스크별 시청자 추적: Map<deskId, Set<clientDeviceId>>
     this.deskViewers = new Map();
+    // Claude 누적 사용량
+    this.claudeUsage = {
+      totalCostUsd: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalCacheReadTokens: 0,
+      totalCacheCreationTokens: 0,
+      sessionCount: 0,
+      lastUpdated: null
+    };
     // 배포 상태 관리
     this.deployState = {
       active: false,
@@ -290,6 +300,8 @@ class Pylon {
 
     if (type === 'device_status') {
       this.localServer?.broadcast({ type: 'device_status', devices: payload?.devices });
+      // 새 클라이언트 접속 시 Pylon 상태 브로드캐스트
+      this.broadcastPylonStatus();
       return;
     }
 
@@ -757,6 +769,11 @@ class Pylon {
     // 이벤트 타입별 메시지 저장
     this.saveEventToHistory(deskId, event);
 
+    // result 이벤트에서 사용량 누적
+    if (event.type === 'result') {
+      this.accumulateUsage(event);
+    }
+
     const message = {
       type: 'claude_event',
       payload: { deskId, event }
@@ -829,6 +846,43 @@ class Pylon {
         });
         break;
     }
+  }
+
+  // ============ Claude 사용량 누적 ============
+
+  /**
+   * Claude result 이벤트에서 사용량 누적
+   */
+  accumulateUsage(event) {
+    if (event.total_cost_usd) {
+      this.claudeUsage.totalCostUsd += event.total_cost_usd;
+    }
+    if (event.usage) {
+      this.claudeUsage.totalInputTokens += event.usage.inputTokens || 0;
+      this.claudeUsage.totalOutputTokens += event.usage.outputTokens || 0;
+      this.claudeUsage.totalCacheReadTokens += event.usage.cacheReadInputTokens || 0;
+      this.claudeUsage.totalCacheCreationTokens += event.usage.cacheCreationInputTokens || 0;
+    }
+    this.claudeUsage.sessionCount++;
+    this.claudeUsage.lastUpdated = new Date().toISOString();
+
+    // 사용량 업데이트를 모든 클라이언트에 브로드캐스트
+    this.broadcastPylonStatus();
+  }
+
+  /**
+   * Pylon 상태 브로드캐스트 (사용량 + 배포 상태)
+   */
+  broadcastPylonStatus() {
+    this.send({
+      type: 'pylon_status',
+      broadcast: 'clients',
+      payload: {
+        deviceId: this.deviceId,
+        claudeUsage: this.claudeUsage,
+        deployReady: this.deployState.ready
+      }
+    });
   }
 
   // ============ 업데이트/배포 ============
