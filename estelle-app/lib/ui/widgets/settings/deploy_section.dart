@@ -202,7 +202,7 @@ class _ActionButton extends StatelessWidget {
           ),
           onPressed: selectedPylonId != null
               ? () {
-                  notifier.selectPylon(selectedPylonId);
+                  notifier.selectPylon(selectedPylonId!);
                   notifier.startBuild();
                 }
               : null,
@@ -254,7 +254,7 @@ class _ActionButton extends StatelessWidget {
           ),
           onPressed: () {
             if (selectedPylonId != null) {
-              notifier.selectPylon(selectedPylonId);
+              notifier.selectPylon(selectedPylonId!);
             }
             notifier.startBuild();
           },
