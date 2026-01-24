@@ -372,7 +372,25 @@ class ClaudeManager {
    * 권한 핸들러
    */
   async handlePermission(deskId, toolName, input) {
-    // 자동 허용
+    // 퍼미션 모드 체크
+    const permissionMode = deskStore.getPermissionMode();
+
+    // bypassPermissions: 모든 도구 자동 허용 (AskUserQuestion 제외)
+    if (permissionMode === 'bypassPermissions' && toolName !== 'AskUserQuestion') {
+      console.log(`[ClaudeManager] Bypass mode - auto-allow: ${toolName}`);
+      return { behavior: 'allow', updatedInput: input };
+    }
+
+    // acceptEdits: Edit, Write, Bash 등 자동 허용
+    if (permissionMode === 'acceptEdits') {
+      const editTools = ['Edit', 'Write', 'Bash', 'NotebookEdit'];
+      if (editTools.includes(toolName)) {
+        console.log(`[ClaudeManager] AcceptEdits mode - auto-allow: ${toolName}`);
+        return { behavior: 'allow', updatedInput: input };
+      }
+    }
+
+    // 자동 허용 (Read, Glob 등)
     if (this.autoAllowTools.has(toolName)) {
       console.log(`[ClaudeManager] Auto-allow: ${toolName}`);
       return { behavior: 'allow', updatedInput: input };

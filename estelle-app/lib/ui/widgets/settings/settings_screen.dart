@@ -4,6 +4,7 @@ import '../../../core/constants/colors.dart';
 import 'claude_usage_card.dart';
 import 'deploy_section.dart';
 import 'app_update_section.dart';
+import 'permission_mode_section.dart';
 
 /// 설정 화면 메인 위젯
 class SettingsScreen extends ConsumerWidget {
@@ -41,6 +42,8 @@ class SettingsContent extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         ClaudeUsageCard(),
+        SizedBox(height: 16),
+        PermissionModeSection(),
         SizedBox(height: 16),
         DeploySection(),
         SizedBox(height: 16),

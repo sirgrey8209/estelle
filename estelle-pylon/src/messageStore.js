@@ -9,6 +9,76 @@ import path from 'path';
 const MESSAGES_DIR = path.join(process.cwd(), 'messages');
 const MAX_MESSAGES_PER_DESK = 200;
 const SAVE_DEBOUNCE_MS = 2000; // 2초 debounce
+const MAX_OUTPUT_LENGTH = 500;
+const MAX_INPUT_LENGTH = 300;
+
+/**
+ * toolInput 요약 (히스토리 저장용)
+ * 파일 경로, 명령어 첫 줄 등 핵심 정보만 유지
+ */
+function summarizeToolInput(toolName, input) {
+  if (!input) return input;
+
+  // 파일 관련 도구는 경로만
+  if (['Read', 'Edit', 'Write', 'NotebookEdit'].includes(toolName)) {
+    const result = {};
+    if (input.file_path) result.file_path = input.file_path;
+    if (input.notebook_path) result.notebook_path = input.notebook_path;
+    return result;
+  }
+
+  // Bash는 description + command 첫 줄만
+  if (toolName === 'Bash') {
+    const result = {};
+    if (input.description) result.description = input.description;
+    if (input.command) {
+      const firstLine = input.command.split('\n')[0];
+      result.command = firstLine.length > MAX_INPUT_LENGTH
+        ? firstLine.slice(0, MAX_INPUT_LENGTH) + '...'
+        : firstLine;
+    }
+    return result;
+  }
+
+  // Glob, Grep는 pattern과 path
+  if (['Glob', 'Grep'].includes(toolName)) {
+    const result = {};
+    if (input.pattern) result.pattern = input.pattern;
+    if (input.path) result.path = input.path;
+    return result;
+  }
+
+  // 기타는 값이 길면 truncate
+  return truncateObjectValues(input, MAX_INPUT_LENGTH);
+}
+
+/**
+ * 객체의 문자열 값들을 truncate
+ */
+function truncateObjectValues(obj, maxLength) {
+  if (!obj || typeof obj !== 'object') return obj;
+
+  const result = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (typeof value === 'string' && value.length > maxLength) {
+      result[key] = value.slice(0, maxLength) + '...';
+    } else if (typeof value === 'object' && value !== null) {
+      result[key] = truncateObjectValues(value, maxLength);
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
+/**
+ * output 요약 (히스토리 저장용)
+ */
+function summarizeOutput(output) {
+  if (!output || typeof output !== 'string') return output;
+  if (output.length <= MAX_OUTPUT_LENGTH) return output;
+  return output.slice(0, MAX_OUTPUT_LENGTH) + `\n... (${output.length} chars total)`;
+}
 
 // 디렉토리 생성
 if (!fs.existsSync(MESSAGES_DIR)) {
@@ -175,19 +245,19 @@ class MessageStore {
   }
 
   /**
-   * 도구 시작 추가
+   * 도구 시작 추가 (toolInput 요약하여 저장)
    */
   addToolStart(deskId, toolName, toolInput) {
     return this.addMessage(deskId, {
       role: 'assistant',
       type: 'tool_start',
       toolName,
-      toolInput
+      toolInput: summarizeToolInput(toolName, toolInput)
     });
   }
 
   /**
-   * 도구 완료 업데이트
+   * 도구 완료 업데이트 (output 요약하여 저장)
    */
   updateToolComplete(deskId, toolName, success, result, error) {
     const messages = this.ensureCache(deskId);
@@ -199,8 +269,8 @@ class MessageStore {
           ...msg,
           type: 'tool_complete',
           success,
-          output: result,
-          error
+          output: summarizeOutput(result),
+          error: summarizeOutput(error)
         };
         break;
       }

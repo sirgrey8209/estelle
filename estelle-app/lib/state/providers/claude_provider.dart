@@ -107,6 +107,19 @@ class ClaudeMessagesNotifier extends StateNotifier<List<ClaudeMessage>> {
       _handleClaudeEvent(pendingEvent);
     }
 
+    // 상태 복원 (Pylon에서 보내주는 hasActiveSession 기반)
+    final hasActiveSession = payload['hasActiveSession'] as bool? ?? false;
+    if (hasActiveSession) {
+      _ref.read(claudeStateProvider.notifier).state = 'working';
+      _ref.read(isThinkingProvider.notifier).state = true;
+    } else if (pendingEvent != null) {
+      // pendingEvent가 있으면 permission 상태 (위에서 이미 처리됨)
+      _ref.read(claudeStateProvider.notifier).state = 'permission';
+    } else {
+      _ref.read(claudeStateProvider.notifier).state = 'idle';
+      _ref.read(isThinkingProvider.notifier).state = false;
+    }
+
     _ref.read(currentTextBufferProvider.notifier).state = '';
   }
 

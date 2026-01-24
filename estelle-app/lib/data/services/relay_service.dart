@@ -244,6 +244,16 @@ class RelayService {
     });
   }
 
+  /// 퍼미션 모드 변경 (모든 Pylon에 브로드캐스트)
+  /// [mode] - 'default', 'acceptEdits', 'bypassPermissions'
+  void setPermissionMode(String mode) {
+    send({
+      'type': 'claude_set_permission_mode',
+      'broadcast': 'pylons',
+      'payload': {'mode': mode},
+    });
+  }
+
   // ============ History Pagination ============
 
   void requestHistory(int deviceId, String deskId, {int limit = 50, int offset = 0}) {
