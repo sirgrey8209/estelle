@@ -29,7 +29,6 @@ class _AppUpdateSectionState extends ConsumerState<AppUpdateSection> {
   Widget build(BuildContext context) {
     final versionInfo = ref.watch(deployVersionProvider);
     final pylons = ref.watch(pylonListProvider);
-    final connectedPylons = pylons.where((p) => p.isConnected).toList();
 
     // 현재 플랫폼 확인 (웹 안전)
     final isAndroid = !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
@@ -162,11 +161,11 @@ class _AppUpdateSectionState extends ConsumerState<AppUpdateSection> {
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   minimumSize: const Size(100, 36),
                 ),
-                onPressed: connectedPylons.isEmpty || versionInfo.isUpdating
+                onPressed: pylons.isEmpty || versionInfo.isUpdating
                     ? null
                     : () => _handleUpdate(
                           context,
-                          connectedPylons.first.deviceId,
+                          pylons.first.deviceId,
                           isAndroid,
                           isWindows,
                           versionInfo,
