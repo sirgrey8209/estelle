@@ -332,8 +332,9 @@ class _StatusLine extends StatelessWidget {
     }
     // 버전/커밋 정보 추가
     String text = status.statusMessage;
-    if (status.commitHash != null && status.phase == DeployPhase.buildReady ||
-        status.phase == DeployPhase.ready) {
+    if (status.commitHash != null &&
+        (status.phase == DeployPhase.buildReady ||
+            status.phase == DeployPhase.ready)) {
       text += ' (${status.commitHash})';
     }
     return text;
