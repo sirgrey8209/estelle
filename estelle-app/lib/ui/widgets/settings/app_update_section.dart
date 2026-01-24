@@ -1,6 +1,5 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/constants/colors.dart';
@@ -32,9 +31,9 @@ class _AppUpdateSectionState extends ConsumerState<AppUpdateSection> {
     final pylons = ref.watch(pylonListProvider);
     final connectedPylons = pylons.where((p) => p.isConnected).toList();
 
-    // 현재 플랫폼 확인
-    final isAndroid = !kIsWeb && Platform.isAndroid;
-    final isWindows = !kIsWeb && Platform.isWindows;
+    // 현재 플랫폼 확인 (웹 안전)
+    final isAndroid = !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+    final isWindows = !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
 
     // 버전 비교
     final hasUpdate = versionInfo.version != null &&
