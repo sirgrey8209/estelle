@@ -94,6 +94,9 @@ class DeployTrackingNotifier extends StateNotifier<DeployStatus> {
         case 'deploy_error':
           _handleDeployError(payload);
           break;
+        case 'deploy_log':
+          _handleDeployLog(payload);
+          break;
       }
     });
   }
@@ -189,6 +192,21 @@ class DeployTrackingNotifier extends StateNotifier<DeployStatus> {
     );
   }
 
+  void _handleDeployLog(Map<String, dynamic>? payload) {
+    if (payload == null) return;
+
+    final line = payload['line'] as String?;
+    if (line == null) return;
+
+    // 최대 100줄 유지
+    final newLogs = [...state.logs, line];
+    if (newLogs.length > 100) {
+      newLogs.removeAt(0);
+    }
+
+    state = state.copyWith(logs: newLogs);
+  }
+
   /// Pylon 선택
   void selectPylon(int pylonId) {
     state = state.copyWith(
@@ -212,6 +230,7 @@ class DeployTrackingNotifier extends StateNotifier<DeployStatus> {
       buildTasks: {},
       pylonAckCount: 0,
       clearError: true,
+      clearLogs: true,
     );
 
     _ref.read(relayServiceProvider).sendDeployPrepare(state.selectedPylonId!);
@@ -262,9 +281,145 @@ class DeployTrackingNotifier extends StateNotifier<DeployStatus> {
     _ref.read(relayServiceProvider).sendDeployGo();
   }
 
+  /// 로그 박스 토글
+  void toggleLogExpanded() {
+    state = state.copyWith(logExpanded: !state.logExpanded);
+  }
+
   /// 상태 초기화
   void reset() {
     state = DeployStatus.initial;
+  }
+
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    super.dispose();
+  }
+}
+
+// ============ Version Check ============
+
+/// 배포 버전 정보
+class DeployVersionInfo {
+  final String? version;
+  final String? commit;
+  final String? buildTime;
+  final String? apkUrl;
+  final String? exeUrl;
+  final String? error;
+  final bool isLoading;
+  final bool isUpdating;
+
+  const DeployVersionInfo({
+    this.version,
+    this.commit,
+    this.buildTime,
+    this.apkUrl,
+    this.exeUrl,
+    this.error,
+    this.isLoading = false,
+    this.isUpdating = false,
+  });
+
+  DeployVersionInfo copyWith({
+    String? version,
+    String? commit,
+    String? buildTime,
+    String? apkUrl,
+    String? exeUrl,
+    String? error,
+    bool? isLoading,
+    bool? isUpdating,
+    bool clearError = false,
+  }) {
+    return DeployVersionInfo(
+      version: version ?? this.version,
+      commit: commit ?? this.commit,
+      buildTime: buildTime ?? this.buildTime,
+      apkUrl: apkUrl ?? this.apkUrl,
+      exeUrl: exeUrl ?? this.exeUrl,
+      error: clearError ? null : (error ?? this.error),
+      isLoading: isLoading ?? this.isLoading,
+      isUpdating: isUpdating ?? this.isUpdating,
+    );
+  }
+
+  static const DeployVersionInfo initial = DeployVersionInfo();
+}
+
+/// 배포 버전 정보 Provider
+final deployVersionProvider =
+    StateNotifierProvider<DeployVersionNotifier, DeployVersionInfo>((ref) {
+  return DeployVersionNotifier(ref);
+});
+
+class DeployVersionNotifier extends StateNotifier<DeployVersionInfo> {
+  final Ref _ref;
+  StreamSubscription? _subscription;
+
+  DeployVersionNotifier(this._ref) : super(DeployVersionInfo.initial) {
+    _listenToMessages();
+  }
+
+  void _listenToMessages() {
+    _subscription =
+        _ref.read(relayServiceProvider).messageStream.listen((data) {
+      final type = data['type'] as String?;
+      final payload = data['payload'] as Map<String, dynamic>?;
+
+      if (type == 'version_check_result') {
+        _handleVersionCheckResult(payload);
+      } else if (type == 'app_update_result') {
+        _handleAppUpdateResult(payload);
+      }
+    });
+  }
+
+  void _handleVersionCheckResult(Map<String, dynamic>? payload) {
+    if (payload == null) return;
+
+    state = state.copyWith(
+      version: payload['version'] as String?,
+      commit: payload['commit'] as String?,
+      buildTime: payload['buildTime'] as String?,
+      apkUrl: payload['apkUrl'] as String?,
+      exeUrl: payload['exeUrl'] as String?,
+      error: payload['error'] as String?,
+      isLoading: false,
+    );
+  }
+
+  void _handleAppUpdateResult(Map<String, dynamic>? payload) {
+    if (payload == null) return;
+
+    final success = payload['success'] as bool? ?? false;
+    if (success) {
+      // 업데이트 URL 받음 - 다운로드 시작
+      state = state.copyWith(
+        apkUrl: payload['apkUrl'] as String?,
+        exeUrl: payload['exeUrl'] as String?,
+        isUpdating: false,
+        clearError: true,
+      );
+    } else {
+      state = state.copyWith(
+        error: payload['error'] as String?,
+        isUpdating: false,
+      );
+    }
+  }
+
+  /// 버전 체크 요청
+  void requestVersionCheck() {
+    state = state.copyWith(isLoading: true, clearError: true);
+    _ref.read(relayServiceProvider).requestVersionCheck();
+  }
+
+  /// 앱 업데이트 요청
+  void requestUpdate(int pylonDeviceId) {
+    state = state.copyWith(isUpdating: true, clearError: true);
+    _ref.read(relayServiceProvider).requestAppUpdate(pylonDeviceId);
   }
 
   @override

@@ -3,7 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/constants/colors.dart';
 import '../../../state/providers/settings_provider.dart';
 import 'claude_usage_card.dart';
-import 'deploy_status_card.dart';
+import 'deploy_section.dart';
+import 'app_update_section.dart';
 
 /// 설정 화면 메인 위젯
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -34,7 +35,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           children: [
             ClaudeUsageCard(),
             SizedBox(height: 16),
-            DeployStatusCard(),
+            DeploySection(),
+            SizedBox(height: 16),
+            AppUpdateSection(),
           ],
         ),
       ),
@@ -68,7 +71,9 @@ class _SettingsContentState extends ConsumerState<SettingsContent> {
       children: [
         ClaudeUsageCard(),
         SizedBox(height: 16),
-        DeployStatusCard(),
+        DeploySection(),
+        SizedBox(height: 16),
+        AppUpdateSection(),
       ],
     );
   }

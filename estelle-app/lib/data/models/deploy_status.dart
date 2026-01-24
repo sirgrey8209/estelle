@@ -20,6 +20,8 @@ class DeployStatus {
   final String? commitHash;
   final String? version;
   final int pylonAckCount;
+  final List<String> logs; // 배포 로그 라인들
+  final bool logExpanded; // 로그 박스 확장 상태
 
   const DeployStatus({
     this.phase = DeployPhase.idle,
@@ -31,6 +33,8 @@ class DeployStatus {
     this.commitHash,
     this.version,
     this.pylonAckCount = 0,
+    this.logs = const [],
+    this.logExpanded = false,
   });
 
   DeployStatus copyWith({
@@ -43,7 +47,10 @@ class DeployStatus {
     String? commitHash,
     String? version,
     int? pylonAckCount,
+    List<String>? logs,
+    bool? logExpanded,
     bool clearError = false,
+    bool clearLogs = false,
   }) {
     return DeployStatus(
       phase: phase ?? this.phase,
@@ -55,6 +62,8 @@ class DeployStatus {
       commitHash: commitHash ?? this.commitHash,
       version: version ?? this.version,
       pylonAckCount: pylonAckCount ?? this.pylonAckCount,
+      logs: clearLogs ? const [] : (logs ?? this.logs),
+      logExpanded: logExpanded ?? this.logExpanded,
     );
   }
 

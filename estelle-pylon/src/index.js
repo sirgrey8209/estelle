@@ -505,6 +505,18 @@ class Pylon {
       return;
     }
 
+    // 버전 체크 요청
+    if (type === 'version_check_request') {
+      this.handleVersionCheckRequest(message);
+      return;
+    }
+
+    // 앱 업데이트 요청
+    if (type === 'app_update_request') {
+      this.handleAppUpdateRequest(message);
+      return;
+    }
+
     this.localServer?.broadcast({ type: 'from_relay', data: message });
   }
 
@@ -1046,6 +1058,91 @@ class Pylon {
     });
   }
 
+  // ============ 버전 체크 / 앱 업데이트 ============
+
+  /**
+   * 버전 체크 요청 처리
+   */
+  async handleVersionCheckRequest(message) {
+    const from = message.from;
+    this.log('Version check request received');
+
+    try {
+      // GitHub에서 deploy.json 가져오기
+      const deployInfo = await this.fetchDeployJson();
+
+      this.send({
+        type: 'version_check_result',
+        to: from?.deviceId ? { deviceId: from.deviceId, deviceType: from.deviceType } : undefined,
+        broadcast: from?.deviceId ? undefined : 'clients',
+        payload: {
+          version: deployInfo?.version || null,
+          commit: deployInfo?.commit || null,
+          buildTime: deployInfo?.buildTime || null,
+          apkUrl: deployInfo?.apkUrl || null,
+          exeUrl: deployInfo?.exeUrl || null,
+          error: null
+        }
+      });
+    } catch (err) {
+      this.log(`Version check failed: ${err.message}`);
+      this.send({
+        type: 'version_check_result',
+        to: from?.deviceId ? { deviceId: from.deviceId, deviceType: from.deviceType } : undefined,
+        broadcast: from?.deviceId ? undefined : 'clients',
+        payload: {
+          version: null,
+          commit: null,
+          error: err.message
+        }
+      });
+    }
+  }
+
+  /**
+   * 앱 업데이트 요청 처리
+   * - 요청자(앱)에게 다운로드 URL 전달
+   */
+  async handleAppUpdateRequest(message) {
+    const from = message.from;
+    this.log('App update request received');
+
+    try {
+      const deployInfo = await this.fetchDeployJson();
+
+      if (!deployInfo) {
+        throw new Error('배포 정보를 가져올 수 없습니다');
+      }
+
+      // GitHub Release에서 직접 다운로드 URL 생성
+      const baseUrl = 'https://github.com/sirgrey8209/estelle/releases/download/deploy';
+      const apkUrl = `${baseUrl}/estelle-app.apk`;
+      const exeUrl = `${baseUrl}/estelle-app.exe`;
+
+      this.send({
+        type: 'app_update_result',
+        to: { deviceId: from.deviceId, deviceType: from.deviceType },
+        payload: {
+          success: true,
+          version: deployInfo.version,
+          commit: deployInfo.commit,
+          apkUrl,
+          exeUrl,
+        }
+      });
+    } catch (err) {
+      this.log(`App update request failed: ${err.message}`);
+      this.send({
+        type: 'app_update_result',
+        to: { deviceId: from.deviceId, deviceType: from.deviceType },
+        payload: {
+          success: false,
+          error: err.message
+        }
+      });
+    }
+  }
+
   // ============ 배포 시스템 ============
 
   /**
@@ -1134,6 +1231,85 @@ class Pylon {
   }
 
   /**
+   * PowerShell 스크립트 실행 헬퍼 (비동기 + 실시간 로그 브로드캐스트)
+   */
+  runScriptWithLog(scriptName, args = '') {
+    return new Promise((resolve, reject) => {
+      const scriptPath = path.join(REPO_DIR, 'scripts', scriptName);
+      const fullArgs = [
+        '-ExecutionPolicy', 'Bypass',
+        '-File', scriptPath,
+        '-RepoDir', REPO_DIR,
+        ...args.split(' ').filter(a => a)
+      ];
+
+      const child = spawn('powershell', fullArgs, {
+        encoding: 'utf-8',
+        windowsHide: true
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      child.stdout.on('data', (data) => {
+        const text = data.toString();
+        stdout += text;
+
+        // 각 라인을 deploy_log로 브로드캐스트
+        const lines = text.split('\n').filter(line => line.trim());
+        for (const line of lines) {
+          this.sendDeployLog(line.trim());
+        }
+      });
+
+      child.stderr.on('data', (data) => {
+        const text = data.toString();
+        stderr += text;
+
+        // stderr도 로그로 전송
+        const lines = text.split('\n').filter(line => line.trim());
+        for (const line of lines) {
+          this.sendDeployLog(`[ERR] ${line.trim()}`);
+        }
+      });
+
+      child.on('close', (code) => {
+        if (code !== 0) {
+          try {
+            const result = JSON.parse(stdout);
+            if (!result.success) reject(new Error(result.message || 'Script failed'));
+            else resolve(result);
+          } catch (e) {
+            reject(new Error(stderr || stdout || `Exit code: ${code}`));
+          }
+          return;
+        }
+        try { resolve(JSON.parse(stdout)); }
+        catch (e) { reject(new Error(`Failed to parse JSON: ${stdout}`)); }
+      });
+
+      child.on('error', (err) => {
+        reject(err);
+      });
+    });
+  }
+
+  /**
+   * 배포 로그 한 줄 브로드캐스트
+   */
+  sendDeployLog(line) {
+    this.send({
+      type: 'deploy_log',
+      broadcast: 'apps',
+      payload: {
+        deviceId: this.deviceId,
+        line,
+        timestamp: Date.now()
+      }
+    });
+  }
+
+  /**
    * PowerShell 스크립트 실행 헬퍼 (동기)
    */
   runScript(scriptName, args = '') {
@@ -1162,9 +1338,10 @@ class Pylon {
       // 1. Git sync (P1)
       this.deployState.tasks.git = 'running';
       this.sendDeployStatus();
+      this.sendDeployLog('▶ Git sync 시작...');
 
       this.log('Running git-sync-p1...');
-      const gitResult = await this.runScriptAsync('git-sync-p1.ps1');
+      const gitResult = await this.runScriptWithLog('git-sync-p1.ps1');
       if (!gitResult.success) throw new Error(gitResult.message);
 
       this.deployState.tasks.git = 'done';
@@ -1187,9 +1364,10 @@ class Pylon {
 
         this.deployState.tasks.apk = 'running';
         this.sendDeployStatus();
+        this.sendDeployLog('▶ APK 빌드 시작...');
 
         this.log('Running build-apk...');
-        const apkResult = await this.runScriptAsync('build-apk.ps1', `-BuildTime ${buildTime}`);
+        const apkResult = await this.runScriptWithLog('build-apk.ps1', `-BuildTime ${buildTime}`);
         if (!apkResult.success) throw new Error(apkResult.message);
 
         this.deployState.tasks.apk = 'done';
@@ -1199,9 +1377,10 @@ class Pylon {
         // 3. EXE 빌드
         this.deployState.tasks.exe = 'running';
         this.sendDeployStatus();
+        this.sendDeployLog('▶ EXE 빌드 시작...');
 
         this.log('Running build-exe...');
-        const exeResult = await this.runScriptAsync('build-exe.ps1', `-BuildTime ${buildTime}`);
+        const exeResult = await this.runScriptWithLog('build-exe.ps1', `-BuildTime ${buildTime}`);
         if (!exeResult.success) throw new Error(exeResult.message);
 
         this.deployState.tasks.exe = 'done';
@@ -1215,9 +1394,10 @@ class Pylon {
       // 4. Pylon 빌드 (npm install)
       this.deployState.tasks.npm = 'running';
       this.sendDeployStatus();
+      this.sendDeployLog('▶ Pylon 빌드 시작...');
 
       this.log('Running build-pylon...');
-      const pylonResult = await this.runScriptAsync('build-pylon.ps1');
+      const pylonResult = await this.runScriptWithLog('build-pylon.ps1');
       if (!pylonResult.success) throw new Error(pylonResult.message);
 
       this.deployState.tasks.npm = 'done';
@@ -1420,6 +1600,7 @@ class Pylon {
       if (this.deployState.relayDeploy) {
         // 1. GitHub Release 업로드 (deploy.json + APK)
         this.log('Uploading to GitHub Release...');
+        this.sendDeployLog('▶ GitHub Release 업로드 시작...');
         this.send({
           type: 'deploy_status',
           broadcast: 'all',
@@ -1430,13 +1611,14 @@ class Pylon {
           }
         });
 
-        const uploadResult = await this.runScriptAsync('upload-release.ps1',
+        const uploadResult = await this.runScriptWithLog('upload-release.ps1',
           `-Commit ${this.deployState.commitHash} -Version ${this.deployState.version} -BuildTime ${this.deployState.buildTime}`);
         if (!uploadResult.success) throw new Error(uploadResult.message);
         this.log(`Uploaded: ${uploadResult.uploaded.join(', ')}`);
 
         // 2. fly deploy
         this.log('Deploying Relay...');
+        this.sendDeployLog('▶ Relay 배포 시작...');
         this.send({
           type: 'deploy_status',
           broadcast: 'all',
@@ -1447,12 +1629,13 @@ class Pylon {
           }
         });
 
-        const relayResult = await this.runScriptAsync('deploy-relay.ps1');
+        const relayResult = await this.runScriptWithLog('deploy-relay.ps1');
         if (!relayResult.success) throw new Error(relayResult.message);
         this.log('Relay deployed');
 
         // 3. EXE를 release 폴더로 복사
         this.log('Copying to release folder...');
+        this.sendDeployLog('▶ Release 폴더로 복사 시작...');
         this.send({
           type: 'deploy_status',
           broadcast: 'all',
@@ -1463,7 +1646,7 @@ class Pylon {
           }
         });
 
-        const copyResult = await this.runScriptAsync('copy-release.ps1');
+        const copyResult = await this.runScriptWithLog('copy-release.ps1');
         if (!copyResult.success) throw new Error(copyResult.message);
         this.log(`Copied to: ${copyResult.destination}`);
 

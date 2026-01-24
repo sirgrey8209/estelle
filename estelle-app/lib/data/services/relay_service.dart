@@ -303,6 +303,25 @@ class RelayService {
       'broadcast': 'pylons',
     });
   }
+
+  // ============ Version Check ============
+
+  /// 배포 버전 확인 요청 (첫 번째 Pylon에게)
+  void requestVersionCheck() {
+    send({
+      'type': 'version_check_request',
+      'broadcast': 'pylons',
+    });
+  }
+
+  /// 앱 업데이트 요청
+  void requestAppUpdate(int pylonDeviceId) {
+    send({
+      'type': 'app_update_request',
+      'to': {'deviceId': pylonDeviceId, 'deviceType': 'pylon'},
+      'payload': {},
+    });
+  }
 }
 
 // Singleton instance
