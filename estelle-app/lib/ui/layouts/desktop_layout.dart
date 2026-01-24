@@ -5,8 +5,11 @@ import '../../core/constants/build_info.dart';
 import '../../data/models/desk_info.dart';
 import '../../state/providers/relay_provider.dart';
 import '../../state/providers/desk_provider.dart';
+import '../../state/providers/workspace_provider.dart';
 import '../widgets/sidebar/sidebar.dart';
+import '../widgets/sidebar/workspace_sidebar.dart';
 import '../widgets/chat/chat_area.dart';
+import '../widgets/task/task_detail_view.dart';
 import '../widgets/settings/settings_dialog.dart';
 import '../widgets/common/loading_overlay.dart';
 
@@ -17,7 +20,12 @@ class DesktopLayout extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final connectionAsync = ref.watch(connectionStateProvider);
     final pylons = ref.watch(pylonDesksProvider);
+    final pylonWorkspaces = ref.watch(pylonWorkspacesProvider);
     final loadingState = ref.watch(loadingStateProvider);
+    final selectedItem = ref.watch(selectedItemProvider);
+
+    // 워크스페이스 모드 여부 (워크스페이스가 있으면 새 UI 사용)
+    final useWorkspaceMode = pylonWorkspaces.values.any((p) => p.workspaces.isNotEmpty);
 
     return Stack(
       children: [
@@ -34,14 +42,21 @@ class DesktopLayout extends ConsumerWidget {
               Expanded(
                 child: Row(
                   children: [
-                    // Sidebar
-                    const Sidebar(),
+                    // Sidebar (조건부)
+                    if (useWorkspaceMode)
+                      const SizedBox(width: 280, child: WorkspaceSidebar())
+                    else
+                      const Sidebar(),
 
                     // Divider
                     const VerticalDivider(width: 1, color: NordColors.nord2),
 
-                    // Chat area
-                    const Expanded(child: ChatArea()),
+                    // Main area (대화 또는 태스크)
+                    Expanded(
+                      child: useWorkspaceMode && selectedItem?.isTask == true
+                          ? const TaskDetailView()
+                          : const ChatArea(),
+                    ),
                   ],
                 ),
               ),

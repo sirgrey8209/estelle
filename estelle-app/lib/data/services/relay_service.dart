@@ -1,9 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:web_socket_channel/web_socket_channel.dart';
-import '../models/desk_info.dart';
-import '../models/claude_message.dart';
-import '../models/pending_request.dart';
 import '../../core/constants/relay_config.dart';
 
 typedef MessageHandler = void Function(Map<String, dynamic> data);
@@ -344,6 +341,167 @@ class RelayService {
       'type': 'app_update_request',
       'to': {'deviceId': pylonDeviceId, 'deviceType': 'pylon'},
       'payload': {},
+    });
+  }
+
+  // ============ Workspace Management ============
+
+  void requestWorkspaceList() {
+    send({
+      'type': 'workspace_list',
+      'broadcast': 'pylons',
+    });
+  }
+
+  void createWorkspace(int deviceId, String name, String workingDir) {
+    send({
+      'type': 'workspace_create',
+      'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
+      'payload': {'name': name, 'workingDir': workingDir},
+    });
+  }
+
+  void deleteWorkspace(int deviceId, String workspaceId) {
+    send({
+      'type': 'workspace_delete',
+      'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
+      'payload': {'workspaceId': workspaceId},
+    });
+  }
+
+  void renameWorkspace(int deviceId, String workspaceId, String newName) {
+    send({
+      'type': 'workspace_rename',
+      'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
+      'payload': {'workspaceId': workspaceId, 'newName': newName},
+    });
+  }
+
+  void switchWorkspace(int deviceId, String workspaceId, {String? conversationId}) {
+    send({
+      'type': 'workspace_switch',
+      'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
+      'payload': {
+        'workspaceId': workspaceId,
+        if (conversationId != null) 'conversationId': conversationId,
+      },
+    });
+  }
+
+  // ============ Conversation Management ============
+
+  void createConversation(int deviceId, String workspaceId, {String? name}) {
+    send({
+      'type': 'conversation_create',
+      'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
+      'payload': {
+        'workspaceId': workspaceId,
+        if (name != null) 'name': name,
+      },
+    });
+  }
+
+  void deleteConversation(int deviceId, String workspaceId, String conversationId) {
+    send({
+      'type': 'conversation_delete',
+      'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
+      'payload': {
+        'workspaceId': workspaceId,
+        'conversationId': conversationId,
+      },
+    });
+  }
+
+  void selectConversation(int deviceId, String conversationId) {
+    send({
+      'type': 'conversation_select',
+      'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
+      'payload': {'conversationId': conversationId},
+    });
+  }
+
+  // ============ Folder Management ============
+
+  void requestFolderList(int deviceId, {String? path}) {
+    send({
+      'type': 'folder_list',
+      'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
+      'payload': {
+        if (path != null) 'path': path,
+      },
+    });
+  }
+
+  void createFolder(int deviceId, String parentPath, String name) {
+    send({
+      'type': 'folder_create',
+      'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
+      'payload': {'path': parentPath, 'name': name},
+    });
+  }
+
+  void renameFolder(int deviceId, String folderPath, String newName) {
+    send({
+      'type': 'folder_rename',
+      'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
+      'payload': {'path': folderPath, 'newName': newName},
+    });
+  }
+
+  // ============ Task Management ============
+
+  void requestTaskList(int deviceId, String workspaceId) {
+    send({
+      'type': 'task_list',
+      'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
+      'payload': {'workspaceId': workspaceId},
+    });
+  }
+
+  void requestTaskGet(int deviceId, String workspaceId, String taskId) {
+    send({
+      'type': 'task_get',
+      'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
+      'payload': {'workspaceId': workspaceId, 'taskId': taskId},
+    });
+  }
+
+  void updateTaskStatus(int deviceId, String workspaceId, String taskId, String status, {String? error}) {
+    send({
+      'type': 'task_status',
+      'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
+      'payload': {
+        'workspaceId': workspaceId,
+        'taskId': taskId,
+        'status': status,
+        if (error != null) 'error': error,
+      },
+    });
+  }
+
+  // ============ Worker Management ============
+
+  void requestWorkerStatus(int deviceId, String workspaceId) {
+    send({
+      'type': 'worker_status',
+      'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
+      'payload': {'workspaceId': workspaceId},
+    });
+  }
+
+  void startWorker(int deviceId, String workspaceId) {
+    send({
+      'type': 'worker_start',
+      'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
+      'payload': {'workspaceId': workspaceId},
+    });
+  }
+
+  void stopWorker(int deviceId, String workspaceId) {
+    send({
+      'type': 'worker_stop',
+      'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
+      'payload': {'workspaceId': workspaceId},
     });
   }
 }

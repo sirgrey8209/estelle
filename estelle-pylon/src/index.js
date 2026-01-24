@@ -12,6 +12,10 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 import deskStore from './deskStore.js';
+import workspaceStore from './workspaceStore.js';
+import folderManager from './folderManager.js';
+import taskManager from './taskManager.js';
+import workerManager from './workerManager.js';
 import ClaudeManager from './claudeManager.js';
 import LocalServer from './localServer.js';
 import PidManager from './pidManager.js';
@@ -89,6 +93,7 @@ class Pylon {
     await this.checkAndUpdate();
 
     deskStore.initialize();
+    workspaceStore.initialize();
 
     this.claudeManager = new ClaudeManager((deskId, event) => {
       this.sendClaudeEvent(deskId, event);
@@ -421,6 +426,316 @@ class Pylon {
       return;
     }
 
+    // ===== 워크스페이스 관련 (Phase 1) =====
+
+    if (type === 'workspace_list') {
+      const workspaces = workspaceStore.getAllWorkspaces();
+      const activeState = workspaceStore.getActiveState();
+      this.send({
+        type: 'workspace_list_result',
+        to: from?.deviceId,
+        payload: {
+          deviceId: this.deviceId,
+          workspaces,
+          activeWorkspaceId: activeState.activeWorkspaceId,
+          activeConversationId: activeState.activeConversationId
+        }
+      });
+      return;
+    }
+
+    if (type === 'workspace_create') {
+      const { name, workingDir } = payload || {};
+      if (name && workingDir) {
+        const result = workspaceStore.createWorkspace(name, workingDir);
+        this.send({
+          type: 'workspace_create_result',
+          to: from?.deviceId,
+          payload: {
+            deviceId: this.deviceId,
+            success: true,
+            workspace: result.workspace,
+            conversation: result.conversation
+          }
+        });
+        // 모든 클라이언트에게 목록 브로드캐스트
+        this.broadcastWorkspaceList();
+      }
+      return;
+    }
+
+    if (type === 'workspace_delete') {
+      const { workspaceId } = payload || {};
+      if (workspaceId) {
+        const success = workspaceStore.deleteWorkspace(workspaceId);
+        this.send({
+          type: 'workspace_delete_result',
+          to: from?.deviceId,
+          payload: { deviceId: this.deviceId, success, workspaceId }
+        });
+        if (success) {
+          this.broadcastWorkspaceList();
+        }
+      }
+      return;
+    }
+
+    if (type === 'workspace_rename') {
+      const { workspaceId, newName } = payload || {};
+      if (workspaceId && newName) {
+        const success = workspaceStore.renameWorkspace(workspaceId, newName);
+        if (success) {
+          this.broadcastWorkspaceList();
+        }
+      }
+      return;
+    }
+
+    if (type === 'workspace_switch') {
+      const { workspaceId, conversationId } = payload || {};
+      if (workspaceId) {
+        workspaceStore.setActiveWorkspace(workspaceId, conversationId);
+        this.broadcastWorkspaceList();
+      }
+      return;
+    }
+
+    if (type === 'conversation_create') {
+      const { workspaceId, name } = payload || {};
+      if (workspaceId) {
+        const conversation = workspaceStore.createConversation(workspaceId, name);
+        this.send({
+          type: 'conversation_create_result',
+          to: from?.deviceId,
+          payload: {
+            deviceId: this.deviceId,
+            success: !!conversation,
+            workspaceId,
+            conversation
+          }
+        });
+        if (conversation) {
+          this.broadcastWorkspaceList();
+        }
+      }
+      return;
+    }
+
+    if (type === 'conversation_delete') {
+      const { workspaceId, conversationId } = payload || {};
+      if (workspaceId && conversationId) {
+        const success = workspaceStore.deleteConversation(workspaceId, conversationId);
+        if (success) {
+          this.broadcastWorkspaceList();
+        }
+      }
+      return;
+    }
+
+    if (type === 'conversation_select') {
+      const { conversationId } = payload || {};
+      if (conversationId) {
+        workspaceStore.setActiveConversation(conversationId);
+      }
+      return;
+    }
+
+    // ===== 폴더 관련 =====
+
+    if (type === 'folder_list') {
+      const { path: targetPath } = payload || {};
+      const result = folderManager.listFolders(targetPath);
+      this.send({
+        type: 'folder_list_result',
+        to: from?.deviceId,
+        payload: {
+          deviceId: this.deviceId,
+          ...result
+        }
+      });
+      return;
+    }
+
+    if (type === 'folder_create') {
+      const { path: parentPath, name } = payload || {};
+      if (parentPath && name) {
+        const result = folderManager.createFolder(parentPath, name);
+        this.send({
+          type: 'folder_create_result',
+          to: from?.deviceId,
+          payload: {
+            deviceId: this.deviceId,
+            ...result
+          }
+        });
+      }
+      return;
+    }
+
+    if (type === 'folder_rename') {
+      const { path: folderPath, newName } = payload || {};
+      if (folderPath && newName) {
+        const result = folderManager.renameFolder(folderPath, newName);
+        this.send({
+          type: 'folder_rename_result',
+          to: from?.deviceId,
+          payload: {
+            deviceId: this.deviceId,
+            ...result
+          }
+        });
+      }
+      return;
+    }
+
+    // ===== 태스크 관련 =====
+
+    if (type === 'task_list') {
+      const { workspaceId } = payload || {};
+      const workspace = workspaceStore.getWorkspace(workspaceId);
+      if (workspace) {
+        const result = taskManager.listTasks(workspace.workingDir);
+        this.send({
+          type: 'task_list_result',
+          to: from?.deviceId,
+          payload: {
+            deviceId: this.deviceId,
+            workspaceId,
+            ...result
+          }
+        });
+      }
+      return;
+    }
+
+    if (type === 'task_get') {
+      const { workspaceId, taskId } = payload || {};
+      const workspace = workspaceStore.getWorkspace(workspaceId);
+      if (workspace && taskId) {
+        const result = taskManager.getTask(workspace.workingDir, taskId);
+        this.send({
+          type: 'task_get_result',
+          to: from?.deviceId,
+          payload: {
+            deviceId: this.deviceId,
+            workspaceId,
+            ...result
+          }
+        });
+      }
+      return;
+    }
+
+    if (type === 'task_status') {
+      const { workspaceId, taskId, status, error } = payload || {};
+      const workspace = workspaceStore.getWorkspace(workspaceId);
+      if (workspace && taskId && status) {
+        const result = taskManager.updateTaskStatus(workspace.workingDir, taskId, status, error);
+        this.send({
+          type: 'task_status_result',
+          to: from?.deviceId,
+          payload: {
+            deviceId: this.deviceId,
+            workspaceId,
+            ...result
+          }
+        });
+        // 태스크 목록 브로드캐스트
+        this.broadcastTaskList(workspaceId);
+      }
+      return;
+    }
+
+    // ===== 워커 관련 =====
+
+    if (type === 'worker_status') {
+      const { workspaceId } = payload || {};
+      const workspace = workspaceStore.getWorkspace(workspaceId);
+      if (workspace) {
+        const status = workerManager.getWorkerStatus(workspaceId, workspace.workingDir);
+        this.send({
+          type: 'worker_status_result',
+          to: from?.deviceId,
+          payload: {
+            deviceId: this.deviceId,
+            ...status
+          }
+        });
+      }
+      return;
+    }
+
+    if (type === 'worker_start') {
+      const { workspaceId, taskId } = payload || {};
+      const workspace = workspaceStore.getWorkspace(workspaceId);
+      if (workspace) {
+        // 워커 시작을 위한 콜백 함수
+        const startClaudeCallback = async (wsId, workingDir, prompt) => {
+          // 워커용 대화 생성 또는 기존 대화 사용
+          let conversation = workspace.conversations.find(c => c.name === '📋 워커');
+          if (!conversation) {
+            conversation = workspaceStore.createConversation(workspaceId, '📋 워커');
+          }
+
+          // 워커 대화를 활성화
+          workspaceStore.setActiveConversation(conversation.conversationId);
+
+          // Claude에게 메시지 전송 (기존 데스크 시스템 사용)
+          // 워커 대화 ID를 deskId로 사용
+          const workerDeskId = `worker-${workspaceId}`;
+
+          // deskStore에 워커용 임시 데스크 생성
+          if (!deskStore.getDesk(workerDeskId)) {
+            deskStore.createWorkerDesk(workerDeskId, workspace.name, workingDir);
+          }
+
+          // Claude 메시지 전송
+          this.claudeManager.sendMessage(workerDeskId, prompt);
+
+          return {
+            process: null, // ClaudeManager가 내부적으로 관리
+            conversationId: conversation.conversationId
+          };
+        };
+
+        // 워커 시작
+        const result = await workerManager.startWorker(workspaceId, workspace.workingDir, startClaudeCallback);
+
+        this.send({
+          type: 'worker_start_result',
+          to: from?.deviceId,
+          payload: {
+            deviceId: this.deviceId,
+            ...result
+          }
+        });
+
+        // 워커 상태 브로드캐스트
+        if (result.success) {
+          this.broadcastWorkerStatus(workspaceId);
+          this.broadcastTaskList(workspaceId);
+        }
+      }
+      return;
+    }
+
+    if (type === 'worker_stop') {
+      const { workspaceId } = payload || {};
+      const workspace = workspaceStore.getWorkspace(workspaceId);
+      if (workspace) {
+        const result = workerManager.stopWorker(workspaceId, workspace.workingDir);
+        this.send({
+          type: 'worker_stop_result',
+          to: from?.deviceId,
+          payload: {
+            deviceId: this.deviceId,
+            ...result
+          }
+        });
+      }
+      return;
+    }
+
     // ===== Claude 관련 =====
 
     if (type === 'claude_send') {
@@ -720,6 +1035,95 @@ class Pylon {
 
     this.localServer?.broadcast({
       type: 'desk_list_result',
+      payload
+    });
+  }
+
+  // ===== 워크스페이스 브로드캐스트 =====
+
+  broadcastWorkspaceList() {
+    const workspaces = workspaceStore.getAllWorkspaces();
+    const activeState = workspaceStore.getActiveState();
+
+    // 각 워크스페이스에 태스크 정보 추가
+    const workspacesWithTasks = workspaces.map(ws => {
+      const taskResult = taskManager.listTasks(ws.workingDir);
+      const tasks = taskResult.success ? taskResult.tasks : [];
+      const workerStatus = workerManager.getWorkerStatus(ws.workspaceId, ws.workingDir);
+
+      return {
+        ...ws,
+        tasks,
+        workerStatus
+      };
+    });
+
+    const payload = {
+      deviceId: this.deviceId,
+      deviceInfo: this.deviceInfo,
+      workspaces: workspacesWithTasks,
+      activeWorkspaceId: activeState.activeWorkspaceId,
+      activeConversationId: activeState.activeConversationId
+    };
+
+    this.send({
+      type: 'workspace_list_result',
+      payload,
+      broadcast: 'clients'
+    });
+
+    this.localServer?.broadcast({
+      type: 'workspace_list_result',
+      payload
+    });
+  }
+
+  broadcastTaskList(workspaceId) {
+    const workspace = workspaceStore.getWorkspace(workspaceId);
+    if (!workspace) return;
+
+    const taskResult = taskManager.listTasks(workspace.workingDir);
+    const workerStatus = workerManager.getWorkerStatus(workspaceId, workspace.workingDir);
+
+    const payload = {
+      deviceId: this.deviceId,
+      workspaceId,
+      tasks: taskResult.success ? taskResult.tasks : [],
+      workerStatus
+    };
+
+    this.send({
+      type: 'task_list_result',
+      payload,
+      broadcast: 'clients'
+    });
+
+    this.localServer?.broadcast({
+      type: 'task_list_result',
+      payload
+    });
+  }
+
+  broadcastWorkerStatus(workspaceId) {
+    const workspace = workspaceStore.getWorkspace(workspaceId);
+    if (!workspace) return;
+
+    const workerStatus = workerManager.getWorkerStatus(workspaceId, workspace.workingDir);
+
+    const payload = {
+      deviceId: this.deviceId,
+      workspaceId,
+      workerStatus
+    };
+
+    this.send({
+      type: 'worker_status_result',
+      payload,
+      broadcast: 'clients'
+    });
+
+    this.localServer?.broadcast({
+      type: 'worker_status_result',
       payload
     });
   }

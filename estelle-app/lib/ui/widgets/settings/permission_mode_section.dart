@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/constants/colors.dart';
-import '../../../data/services/relay_service.dart';
 import '../../../state/providers/relay_provider.dart';
 
 /// 퍼미션 모드 선택기

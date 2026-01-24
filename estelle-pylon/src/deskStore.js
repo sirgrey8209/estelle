@@ -71,11 +71,6 @@ const deskStore = {
     return store.desks.find(d => d.deskId === store.activeDeskId) || null;
   },
 
-  getDesk(deskId) {
-    const store = this.load();
-    return store.desks.find(d => d.deskId === deskId) || null;
-  },
-
   createDesk(name, workingDir = DEFAULT_WORKING_DIR) {
     const store = this.load();
     const newDesk = {
@@ -92,6 +87,45 @@ const deskStore = {
     this.save(store);
     console.log(`[DeskStore] Created desk: ${name}`);
     return newDesk;
+  },
+
+  /**
+   * 워커용 임시 데스크 생성 (저장하지 않음)
+   */
+  createWorkerDesk(deskId, name, workingDir) {
+    // 메모리에만 저장 (영속화하지 않음)
+    if (!this._workerDesks) {
+      this._workerDesks = new Map();
+    }
+    const workerDesk = {
+      deskId,
+      name: `📋 ${name} 워커`,
+      workingDir,
+      claudeSessionId: null,
+      createdAt: Date.now(),
+      lastUsed: Date.now(),
+      status: 'idle',
+      isActive: false,
+      isWorker: true
+    };
+    this._workerDesks.set(deskId, workerDesk);
+    console.log(`[DeskStore] Created worker desk: ${workerDesk.name}`);
+    return workerDesk;
+  },
+
+  /**
+   * 워커 데스크 조회 (일반 데스크도 함께 검색)
+   */
+  getDesk(deskId) {
+    const store = this.load();
+    const desk = store.desks.find(d => d.deskId === deskId);
+    if (desk) return desk;
+
+    // 워커 데스크에서 검색
+    if (this._workerDesks) {
+      return this._workerDesks.get(deskId) || null;
+    }
+    return null;
   },
 
   setActiveDesk(deskId) {

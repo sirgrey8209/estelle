@@ -5,9 +5,12 @@ import '../../data/models/desk_info.dart';
 import '../../state/providers/relay_provider.dart';
 import '../../state/providers/desk_provider.dart';
 import '../../state/providers/claude_provider.dart';
+import '../../state/providers/workspace_provider.dart';
 import '../widgets/chat/chat_area.dart';
 import '../widgets/sidebar/new_desk_dialog.dart';
 import '../widgets/sidebar/desk_list_item.dart';
+import '../widgets/sidebar/workspace_sidebar.dart';
+import '../widgets/task/task_detail_view.dart';
 import '../widgets/settings/settings_screen.dart';
 import '../widgets/common/loading_overlay.dart';
 
@@ -132,6 +135,11 @@ class _MobileLayoutState extends ConsumerState<MobileLayout> {
     final isConnected = connectionAsync.valueOrNull ?? ref.read(relayServiceProvider).isConnected;
     final selectedDesk = ref.watch(selectedDeskProvider);
     final loadingState = ref.watch(loadingStateProvider);
+    final pylonWorkspaces = ref.watch(pylonWorkspacesProvider);
+    final selectedItem = ref.watch(selectedItemProvider);
+
+    // 워크스페이스 모드 여부
+    final useWorkspaceMode = pylonWorkspaces.values.any((p) => p.workspaces.isNotEmpty);
 
     return Scaffold(
       appBar: AppBar(
@@ -139,11 +147,11 @@ class _MobileLayoutState extends ConsumerState<MobileLayout> {
         title: Row(
           children: [
             if (_currentPage == 0) ...[
-              const Text(
-                'Desks',
-                style: TextStyle(fontSize: 18, color: NordColors.nord6),
+              Text(
+                useWorkspaceMode ? 'Workspaces' : 'Desks',
+                style: const TextStyle(fontSize: 18, color: NordColors.nord6),
               ),
-            ] else if (_currentPage == 1 && selectedDesk != null) ...[
+            ] else if (_currentPage == 1 && (useWorkspaceMode || selectedDesk != null)) ...[
               IconButton(
                 icon: const Icon(Icons.arrow_back, size: 20),
                 onPressed: () => _goToPage(0),
@@ -151,15 +159,26 @@ class _MobileLayoutState extends ConsumerState<MobileLayout> {
                 constraints: const BoxConstraints(),
               ),
               const SizedBox(width: 12),
-              Text(selectedDesk.deviceIcon, style: const TextStyle(fontSize: 16)),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  selectedDesk.deskName,
-                  style: const TextStyle(fontSize: 16, color: NordColors.nord5),
-                  overflow: TextOverflow.ellipsis,
+              if (useWorkspaceMode) ...[
+                // 워크스페이스 모드: 선택된 항목 표시
+                Expanded(
+                  child: Text(
+                    selectedItem?.isTask == true ? '📋 태스크' : '💬 대화',
+                    style: const TextStyle(fontSize: 16, color: NordColors.nord5),
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-              ),
+              ] else if (selectedDesk != null) ...[
+                Text(selectedDesk.deviceIcon, style: const TextStyle(fontSize: 16)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    selectedDesk.deskName,
+                    style: const TextStyle(fontSize: 16, color: NordColors.nord5),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
             ] else if (_currentPage == 2) ...[
               const Icon(Icons.settings, color: NordColors.nord4, size: 20),
               const SizedBox(width: 8),
@@ -233,6 +252,7 @@ class _MobileLayoutState extends ConsumerState<MobileLayout> {
               _TabBar(
                 currentPage: _currentPage,
                 onTabSelected: _goToPage,
+                useWorkspaceMode: useWorkspaceMode,
               ),
               // Page content
               Expanded(
@@ -245,20 +265,26 @@ class _MobileLayoutState extends ConsumerState<MobileLayout> {
                     physics: const NeverScrollableScrollPhysics(),
                     onPageChanged: (page) => setState(() => _currentPage = page),
                     children: [
-                      // Page 0: Desk list
-                      _DeskListPage(
-                        onDeskSelected: (desk) {
-                          // 데스크 선택 처리 (저장 + 로드 + sync 요청)
-                          final currentDesk = ref.read(selectedDeskProvider);
-                          ref.read(claudeMessagesProvider.notifier)
-                              .onDeskSelected(currentDesk, desk);
-                          ref.read(selectedDeskProvider.notifier).select(desk);
-                          // Go to chat
-                          _goToPage(1);
-                        },
-                      ),
-                      // Page 1: Chat (hide header on mobile)
-                      const ChatArea(showHeader: false),
+                      // Page 0: List (Workspace or Desk)
+                      if (useWorkspaceMode)
+                        _WorkspaceListPage(onGoToChat: () => _goToPage(1))
+                      else
+                        _DeskListPage(
+                          onDeskSelected: (desk) {
+                            // 데스크 선택 처리 (저장 + 로드 + sync 요청)
+                            final currentDesk = ref.read(selectedDeskProvider);
+                            ref.read(claudeMessagesProvider.notifier)
+                                .onDeskSelected(currentDesk, desk);
+                            ref.read(selectedDeskProvider.notifier).select(desk);
+                            // Go to chat
+                            _goToPage(1);
+                          },
+                        ),
+                      // Page 1: Chat or Task (hide header on mobile)
+                      if (useWorkspaceMode && selectedItem?.isTask == true)
+                        const TaskDetailView()
+                      else
+                        const ChatArea(showHeader: false),
                       // Page 2: Settings
                       const SettingsScreen(),
                     ],
@@ -281,10 +307,12 @@ class _MobileLayoutState extends ConsumerState<MobileLayout> {
 class _TabBar extends StatelessWidget {
   final int currentPage;
   final ValueChanged<int> onTabSelected;
+  final bool useWorkspaceMode;
 
   const _TabBar({
     required this.currentPage,
     required this.onTabSelected,
+    this.useWorkspaceMode = false,
   });
 
   @override
@@ -300,8 +328,8 @@ class _TabBar extends StatelessWidget {
       child: Row(
         children: [
           _TabItem(
-            label: 'Desks',
-            icon: Icons.folder,
+            label: useWorkspaceMode ? 'Workspaces' : 'Desks',
+            icon: useWorkspaceMode ? Icons.workspaces : Icons.folder,
             isSelected: currentPage == 0,
             onTap: () => onTabSelected(0),
           ),
@@ -635,5 +663,18 @@ class _SessionMenuButton extends ConsumerWidget {
         ],
       ),
     );
+  }
+}
+
+/// 워크스페이스 모드용 목록 페이지
+class _WorkspaceListPage extends ConsumerWidget {
+  final VoidCallback onGoToChat;
+
+  const _WorkspaceListPage({required this.onGoToChat});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    // WorkspaceSidebar를 모바일 스타일로 래핑
+    return const WorkspaceSidebar();
   }
 }
