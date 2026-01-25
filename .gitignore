@@ -50,6 +50,7 @@ estelle-pylon/logs/
 estelle-pylon/debug/
 estelle-pylon/messages/
 estelle-pylon/desks.json
+estelle-pylon/workspaces.json
 nul
 
 # Keystore
