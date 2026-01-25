@@ -1,10 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../constants/colors.dart';
 
 class AppTheme {
   AppTheme._();
 
+  // Noto Color Emoji를 fallback으로 포함한 TextStyle 생성
+  static const _fontFallback = ['Noto Color Emoji'];
+
+  static TextStyle _withEmojiFallback(TextStyle style) {
+    return style.copyWith(fontFamilyFallback: _fontFallback);
+  }
+
   static ThemeData get darkTheme {
+    // Noto Color Emoji 폰트 미리 로드
+    GoogleFonts.notoColorEmoji();
+
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.dark,
@@ -70,14 +81,14 @@ class AppTheme {
         radius: const Radius.circular(4),
         thickness: WidgetStateProperty.all(8),
       ),
-      textTheme: const TextTheme(
-        bodyLarge: TextStyle(color: NordColors.nord4, fontSize: 14),
-        bodyMedium: TextStyle(color: NordColors.nord4, fontSize: 13),
-        bodySmall: TextStyle(color: NordColors.nord3, fontSize: 12),
-        titleLarge: TextStyle(color: NordColors.nord6, fontSize: 20, fontWeight: FontWeight.w600),
-        titleMedium: TextStyle(color: NordColors.nord5, fontSize: 16, fontWeight: FontWeight.w600),
-        titleSmall: TextStyle(color: NordColors.nord4, fontSize: 14, fontWeight: FontWeight.w600),
-        labelMedium: TextStyle(color: NordColors.nord3, fontSize: 12),
+      textTheme: TextTheme(
+        bodyLarge: _withEmojiFallback(const TextStyle(color: NordColors.nord4, fontSize: 14)),
+        bodyMedium: _withEmojiFallback(const TextStyle(color: NordColors.nord4, fontSize: 13)),
+        bodySmall: _withEmojiFallback(const TextStyle(color: NordColors.nord3, fontSize: 12)),
+        titleLarge: _withEmojiFallback(const TextStyle(color: NordColors.nord6, fontSize: 20, fontWeight: FontWeight.w600)),
+        titleMedium: _withEmojiFallback(const TextStyle(color: NordColors.nord5, fontSize: 16, fontWeight: FontWeight.w600)),
+        titleSmall: _withEmojiFallback(const TextStyle(color: NordColors.nord4, fontSize: 14, fontWeight: FontWeight.w600)),
+        labelMedium: _withEmojiFallback(const TextStyle(color: NordColors.nord3, fontSize: 12)),
       ),
     );
   }
