@@ -72,8 +72,6 @@ class RelayService {
 
           _isAuthenticated = true;
           _authController.add(true);
-          // Request desk list
-          requestDeskList();
         } else {
           print('Auth failed: ${payload?['error']}');
         }
@@ -144,206 +142,6 @@ class RelayService {
     _messageController.close();
   }
 
-  // ============ Desk Management ============
-
-  void requestDeskList() {
-    send({
-      'type': 'desk_list',
-      'broadcast': 'pylons',
-    });
-  }
-
-  void switchDesk(int deviceId, String deskId) {
-    send({
-      'type': 'desk_switch',
-      'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
-      'payload': {'deskId': deskId},
-    });
-  }
-
-  void requestDeskSync(int deviceId, String deskId) {
-    send({
-      'type': 'desk_sync',
-      'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
-      'payload': {'deskId': deskId},
-    });
-  }
-
-  /// 데스크 선택 알림 (선택적 이벤트 라우팅용)
-  /// Pylon에게 이 클라이언트가 해당 데스크를 보고 있음을 알림
-  void selectDesk(int deviceId, String deskId) {
-    send({
-      'type': 'desk_select',
-      'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
-      'payload': {'deskId': deskId},
-    });
-    // 선택 후 sync도 요청
-    requestDeskSync(deviceId, deskId);
-  }
-
-  void createDesk(int deviceId, String name, String workingDir) {
-    send({
-      'type': 'desk_create',
-      'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
-      'payload': {'name': name, 'workingDir': workingDir},
-    });
-  }
-
-  void renameDesk(int deviceId, String deskId, String newName) {
-    send({
-      'type': 'desk_rename',
-      'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
-      'payload': {'deskId': deskId, 'newName': newName},
-    });
-  }
-
-  void deleteDesk(int deviceId, String deskId) {
-    send({
-      'type': 'desk_delete',
-      'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
-      'payload': {'deskId': deskId},
-    });
-  }
-
-  void reorderDesks(int deviceId, List<String> deskIds) {
-    send({
-      'type': 'desk_reorder',
-      'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
-      'payload': {'deskIds': deskIds},
-    });
-  }
-
-  // ============ Claude Control ============
-
-  void sendClaudeMessage(int deviceId, String deskId, String message) {
-    send({
-      'type': 'claude_send',
-      'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
-      'payload': {'deskId': deskId, 'message': message},
-    });
-  }
-
-  void sendClaudePermission(int deviceId, String deskId, String toolUseId, String decision) {
-    send({
-      'type': 'claude_permission',
-      'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
-      'payload': {
-        'deskId': deskId,
-        'toolUseId': toolUseId,
-        'decision': decision,
-      },
-    });
-  }
-
-  void sendClaudeAnswer(int deviceId, String deskId, String toolUseId, dynamic answer) {
-    send({
-      'type': 'claude_answer',
-      'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
-      'payload': {
-        'deskId': deskId,
-        'toolUseId': toolUseId,
-        'answer': answer,
-      },
-    });
-  }
-
-  void sendClaudeControl(int deviceId, String deskId, String action) {
-    send({
-      'type': 'claude_control',
-      'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
-      'payload': {'deskId': deskId, 'action': action},
-    });
-  }
-
-  /// 퍼미션 모드 변경 (모든 Pylon에 브로드캐스트)
-  /// [mode] - 'default', 'acceptEdits', 'bypassPermissions'
-  void setPermissionMode(String mode) {
-    send({
-      'type': 'claude_set_permission_mode',
-      'broadcast': 'pylons',
-      'payload': {'mode': mode},
-    });
-  }
-
-  // ============ History Pagination ============
-
-  void requestHistory(int deviceId, String deskId, {int limit = 50, int offset = 0}) {
-    send({
-      'type': 'history_request',
-      'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
-      'payload': {
-        'deskId': deskId,
-        'limit': limit,
-        'offset': offset,
-      },
-    });
-  }
-
-  // ============ Deploy ============
-
-  /// 배포 준비 요청 (주도 Pylon에게만)
-  /// [pylonDeviceId] - 주도 Pylon의 deviceId
-  void sendDeployPrepare(int pylonDeviceId) {
-    send({
-      'type': 'deploy_prepare',
-      'to': {'deviceId': pylonDeviceId, 'deviceType': 'pylon'},
-      'payload': {'relayDeploy': true},
-    });
-  }
-
-  /// 배포 확인 (사전 승인 / 취소 토글)
-  /// [pylonDeviceId] - 주도 Pylon의 deviceId
-  /// [preApproved] - 사전 승인 여부
-  /// [cancel] - 취소 여부
-  void sendDeployConfirm(int pylonDeviceId, {bool preApproved = false, bool cancel = false}) {
-    send({
-      'type': 'deploy_confirm',
-      'to': {'deviceId': pylonDeviceId, 'deviceType': 'pylon'},
-      'payload': {
-        'preApproved': preApproved,
-        'cancel': cancel,
-      },
-    });
-  }
-
-  /// 배포 실행 요청 (모든 Pylon + 앱에 브로드캐스트)
-  void sendDeployGo() {
-    send({
-      'type': 'deploy_go',
-      'broadcast': 'all',
-      'payload': {},
-    });
-  }
-
-  // ============ Claude Usage ============
-
-  /// Claude 사용량 요청 (첫 번째 Pylon에게)
-  void requestClaudeUsage() {
-    send({
-      'type': 'claude_usage_request',
-      'broadcast': 'pylons',
-    });
-  }
-
-  // ============ Version Check ============
-
-  /// 배포 버전 확인 요청 (첫 번째 Pylon에게)
-  void requestVersionCheck() {
-    send({
-      'type': 'version_check_request',
-      'broadcast': 'pylons',
-    });
-  }
-
-  /// 앱 업데이트 요청
-  void requestAppUpdate(int pylonDeviceId) {
-    send({
-      'type': 'app_update_request',
-      'to': {'deviceId': pylonDeviceId, 'deviceType': 'pylon'},
-      'payload': {},
-    });
-  }
-
   // ============ Workspace Management ============
 
   void requestWorkspaceList() {
@@ -390,12 +188,13 @@ class RelayService {
 
   // ============ Conversation Management ============
 
-  void createConversation(int deviceId, String workspaceId, {String? name}) {
+  void createConversation(int deviceId, String workspaceId, {String? name, String skillType = 'general'}) {
     send({
       'type': 'conversation_create',
       'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
       'payload': {
         'workspaceId': workspaceId,
+        'skillType': skillType,
         if (name != null) 'name': name,
       },
     });
@@ -412,11 +211,161 @@ class RelayService {
     });
   }
 
-  void selectConversation(int deviceId, String conversationId) {
+  void renameConversation(int deviceId, String workspaceId, String conversationId, String newName) {
+    send({
+      'type': 'conversation_rename',
+      'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
+      'payload': {
+        'workspaceId': workspaceId,
+        'conversationId': conversationId,
+        'newName': newName,
+      },
+    });
+  }
+
+  void selectConversation(int deviceId, String workspaceId, String conversationId) {
     send({
       'type': 'conversation_select',
       'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
-      'payload': {'conversationId': conversationId},
+      'payload': {
+        'workspaceId': workspaceId,
+        'conversationId': conversationId,
+      },
+    });
+  }
+
+  // ============ Claude Control ============
+
+  void sendClaudeMessage(int deviceId, String workspaceId, String conversationId, String message) {
+    send({
+      'type': 'claude_send',
+      'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
+      'payload': {
+        'workspaceId': workspaceId,
+        'conversationId': conversationId,
+        'message': message,
+      },
+    });
+  }
+
+  void sendClaudeControl(int deviceId, String workspaceId, String conversationId, String action) {
+    send({
+      'type': 'claude_control',
+      'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
+      'payload': {
+        'workspaceId': workspaceId,
+        'conversationId': conversationId,
+        'action': action,
+      },
+    });
+  }
+
+  void sendClaudePermission(int deviceId, String workspaceId, String conversationId, String toolUseId, String decision) {
+    send({
+      'type': 'claude_permission',
+      'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
+      'payload': {
+        'workspaceId': workspaceId,
+        'conversationId': conversationId,
+        'toolUseId': toolUseId,
+        'decision': decision,
+      },
+    });
+  }
+
+  void sendClaudeAnswer(int deviceId, String workspaceId, String conversationId, String toolUseId, dynamic answer) {
+    send({
+      'type': 'claude_answer',
+      'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
+      'payload': {
+        'workspaceId': workspaceId,
+        'conversationId': conversationId,
+        'toolUseId': toolUseId,
+        'answer': answer,
+      },
+    });
+  }
+
+  /// 퍼미션 모드 변경 (모든 Pylon에 브로드캐스트)
+  /// [mode] - 'default', 'acceptEdits', 'bypassPermissions'
+  void setPermissionMode(String mode) {
+    send({
+      'type': 'claude_set_permission_mode',
+      'broadcast': 'pylons',
+      'payload': {'mode': mode},
+    });
+  }
+
+  // ============ History Pagination ============
+
+  void requestHistory(int deviceId, String workspaceId, String conversationId, {int limit = 50, int offset = 0}) {
+    send({
+      'type': 'history_request',
+      'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
+      'payload': {
+        'workspaceId': workspaceId,
+        'conversationId': conversationId,
+        'limit': limit,
+        'offset': offset,
+      },
+    });
+  }
+
+  // ============ Deploy ============
+
+  /// 배포 준비 요청 (주도 Pylon에게만)
+  void sendDeployPrepare(int pylonDeviceId) {
+    send({
+      'type': 'deploy_prepare',
+      'to': {'deviceId': pylonDeviceId, 'deviceType': 'pylon'},
+      'payload': {'relayDeploy': true},
+    });
+  }
+
+  /// 배포 확인 (사전 승인 / 취소 토글)
+  void sendDeployConfirm(int pylonDeviceId, {bool preApproved = false, bool cancel = false}) {
+    send({
+      'type': 'deploy_confirm',
+      'to': {'deviceId': pylonDeviceId, 'deviceType': 'pylon'},
+      'payload': {
+        'preApproved': preApproved,
+        'cancel': cancel,
+      },
+    });
+  }
+
+  /// 배포 실행 요청 (모든 Pylon + 앱에 브로드캐스트)
+  void sendDeployGo() {
+    send({
+      'type': 'deploy_go',
+      'broadcast': 'all',
+      'payload': {},
+    });
+  }
+
+  // ============ Claude Usage ============
+
+  void requestClaudeUsage() {
+    send({
+      'type': 'claude_usage_request',
+      'broadcast': 'pylons',
+    });
+  }
+
+  // ============ Version Check ============
+
+  void requestVersionCheck() {
+    send({
+      'type': 'version_check_request',
+      'broadcast': 'pylons',
+    });
+  }
+
+  void requestAppUpdate(int pylonDeviceId) {
+    send({
+      'type': 'app_update_request',
+      'to': {'deviceId': pylonDeviceId, 'deviceType': 'pylon'},
+      'payload': {},
     });
   }
 
@@ -502,6 +451,25 @@ class RelayService {
       'type': 'worker_stop',
       'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
       'payload': {'workspaceId': workspaceId},
+    });
+  }
+
+  // ============ Bug Report ============
+
+  void sendBugReport({
+    required String message,
+    String? conversationId,
+    String? workspaceId,
+  }) {
+    send({
+      'type': 'bug_report',
+      'broadcast': 'pylons',
+      'payload': {
+        'message': message,
+        'conversationId': conversationId,
+        'workspaceId': workspaceId,
+        'timestamp': DateTime.now().toIso8601String(),
+      },
     });
   }
 }

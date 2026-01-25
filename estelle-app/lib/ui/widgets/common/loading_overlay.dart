@@ -70,10 +70,8 @@ class LoadingOverlay extends StatelessWidget {
     switch (state) {
       case LoadingState.connecting:
         return ('Connecting...', Icons.cloud_off);
-      case LoadingState.loadingDesks:
-        return ('Loading desks...', Icons.folder_outlined);
-      case LoadingState.loadingMessages:
-        return ('Loading messages...', Icons.chat_outlined);
+      case LoadingState.loadingWorkspaces:
+        return ('Loading workspaces...', Icons.folder_outlined);
       case LoadingState.ready:
         return ('', Icons.check);
     }

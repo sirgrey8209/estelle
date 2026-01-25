@@ -12,6 +12,9 @@ param(
 $ErrorActionPreference = "Stop"
 $FlutterExe = "C:\flutter\bin\flutter.bat"
 $AppDir = Join-Path $RepoDir "estelle-app"
+
+# JAVA_HOME 설정 (Gradle JDK 17 필요)
+$env:JAVA_HOME = "C:\Program Files\Microsoft\jdk-17.0.17.10-hotspot"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 if (-not $ScriptDir) { $ScriptDir = Join-Path $RepoDir "scripts" }
 

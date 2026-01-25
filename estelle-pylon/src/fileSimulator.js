@@ -42,7 +42,7 @@ outbox/    - Outgoing messages are written here
 processed/ - Processed inbox files are moved here
 
 Example:
-  echo '{"type":"desk_list"}' > inbox/test.json
+  echo '{"type":"workspace_list"}' > inbox/test.json
 `.trim());
     }
 

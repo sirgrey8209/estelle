@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/constants/colors.dart';
 import '../../../data/models/pending_request.dart';
 import '../../../state/providers/claude_provider.dart';
-import '../../../state/providers/desk_provider.dart';
+import '../../../state/providers/workspace_provider.dart';
 import '../../../state/providers/relay_provider.dart';
 import 'permission_request_view.dart';
 import 'question_request_view.dart';
@@ -67,18 +67,19 @@ class RequestBar extends ConsumerWidget {
   }
 
   void _respondPermission(WidgetRef ref, PermissionRequest request, String decision) {
-    final desk = ref.read(selectedDeskProvider);
-    if (desk == null) return;
+    final selectedItem = ref.read(selectedItemProvider);
+    if (selectedItem == null || !selectedItem.isConversation) return;
 
     // Record response
     final decisionText = decision == 'allow' ? '승인됨' : '거부됨';
     ref.read(claudeMessagesProvider.notifier)
         .addUserResponse('permission', '${request.toolName} ($decisionText)');
 
-    // Send to relay
+    // Send to relay (workspace 기반)
     ref.read(relayServiceProvider).sendClaudePermission(
-      desk.deviceId,
-      desk.deskId,
+      selectedItem.deviceId,
+      selectedItem.workspaceId,
+      selectedItem.itemId, // conversationId
       request.toolUseId,
       decision,
     );
@@ -88,18 +89,19 @@ class RequestBar extends ConsumerWidget {
   }
 
   void _respondQuestion(WidgetRef ref, QuestionRequest request, dynamic answer) {
-    final desk = ref.read(selectedDeskProvider);
-    if (desk == null) return;
+    final selectedItem = ref.read(selectedItemProvider);
+    if (selectedItem == null || !selectedItem.isConversation) return;
 
     // Record response
     final answerText = answer is List ? answer.join(', ') : answer.toString();
     ref.read(claudeMessagesProvider.notifier)
         .addUserResponse('question', answerText);
 
-    // Send to relay
+    // Send to relay (workspace 기반)
     ref.read(relayServiceProvider).sendClaudeAnswer(
-      desk.deviceId,
-      desk.deskId,
+      selectedItem.deviceId,
+      selectedItem.workspaceId,
+      selectedItem.itemId, // conversationId
       request.toolUseId,
       answer,
     );

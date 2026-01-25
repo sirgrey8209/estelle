@@ -4,6 +4,8 @@ import '../../../data/models/workspace_info.dart';
 import '../../../state/providers/workspace_provider.dart';
 import '../../../core/theme/app_colors.dart';
 
+enum _EditMode { none, rename, delete }
+
 /// 워크스페이스 항목 (펼침/접힘 가능)
 class WorkspaceItem extends ConsumerStatefulWidget {
   final WorkspaceInfo workspace;
@@ -21,6 +23,14 @@ class WorkspaceItem extends ConsumerStatefulWidget {
 
 class _WorkspaceItemState extends ConsumerState<WorkspaceItem> {
   bool _isExpanded = true;
+  _EditMode _editMode = _EditMode.none;
+  final TextEditingController _renameController = TextEditingController();
+
+  @override
+  void dispose() {
+    _renameController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -31,18 +41,42 @@ class _WorkspaceItemState extends ConsumerState<WorkspaceItem> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // 워크스페이스 헤더
-        _WorkspaceHeader(
-          workspace: widget.workspace,
-          pylonIcon: widget.pylonIcon,
-          isExpanded: _isExpanded,
-          isSelected: isThisWorkspaceSelected,
-          priorityStatus: widget.workspace.priorityStatus,
-          onToggle: () => setState(() => _isExpanded = !_isExpanded),
-          onAddConversation: _addConversation,
-        ),
+        if (_editMode == _EditMode.none)
+          _WorkspaceHeader(
+            workspace: widget.workspace,
+            pylonIcon: widget.pylonIcon,
+            isExpanded: _isExpanded,
+            isSelected: isThisWorkspaceSelected,
+            priorityStatus: widget.workspace.priorityStatus,
+            onToggle: () => setState(() => _isExpanded = !_isExpanded),
+            onRename: () {
+              setState(() {
+                _editMode = _EditMode.rename;
+                _renameController.text = widget.workspace.name;
+              });
+            },
+            onDelete: () => setState(() => _editMode = _EditMode.delete),
+            onAddConversation: _addConversation,
+          )
+        else if (_editMode == _EditMode.rename)
+          _RenameRow(
+            icon: widget.pylonIcon,
+            controller: _renameController,
+            onConfirm: _confirmRename,
+            onCancel: _cancelEdit,
+            isWorkspace: true,
+          )
+        else if (_editMode == _EditMode.delete)
+          _DeleteConfirmRow(
+            icon: widget.pylonIcon,
+            name: widget.workspace.name,
+            onConfirm: _confirmDelete,
+            onCancel: _cancelEdit,
+            isWorkspace: true,
+          ),
 
         // 대화/태스크 목록 (펼쳐진 경우)
-        if (_isExpanded) ...[
+        if (_isExpanded && _editMode == _EditMode.none) ...[
           // 대화 목록
           for (final conv in widget.workspace.conversations)
             _ConversationItem(
@@ -63,33 +97,58 @@ class _WorkspaceItemState extends ConsumerState<WorkspaceItem> {
                   selectedItem?.itemId == task.id,
             ),
 
-          // [+] 대화 추가 버튼
-          _AddConversationButton(
-            onTap: _addConversation,
-          ),
-        ],
+          ],
 
-        const SizedBox(height: 4),
+        const SizedBox(height: 8),
       ],
     );
   }
 
-  void _addConversation() {
+  void _addConversation({required String skillType, required String name}) {
     ref.read(pylonWorkspacesProvider.notifier).createConversation(
       widget.workspace.deviceId,
       widget.workspace.workspaceId,
+      name: name,
+      skillType: skillType,
     );
+  }
+
+  void _confirmRename() {
+    final newName = _renameController.text.trim();
+    if (newName.isNotEmpty && newName != widget.workspace.name) {
+      ref.read(pylonWorkspacesProvider.notifier).renameWorkspace(
+        widget.workspace.deviceId,
+        widget.workspace.workspaceId,
+        newName,
+      );
+    }
+    _cancelEdit();
+  }
+
+  void _confirmDelete() {
+    ref.read(pylonWorkspacesProvider.notifier).deleteWorkspace(
+      widget.workspace.deviceId,
+      widget.workspace.workspaceId,
+    );
+    _cancelEdit();
+  }
+
+  void _cancelEdit() {
+    setState(() => _editMode = _EditMode.none);
   }
 }
 
-class _WorkspaceHeader extends StatelessWidget {
+/// 워크스페이스 헤더 - 더 눈에 띄게
+class _WorkspaceHeader extends StatefulWidget {
   final WorkspaceInfo workspace;
   final String pylonIcon;
   final bool isExpanded;
   final bool isSelected;
   final String priorityStatus;
   final VoidCallback onToggle;
-  final VoidCallback onAddConversation;
+  final VoidCallback onRename;
+  final VoidCallback onDelete;
+  final void Function({required String skillType, required String name}) onAddConversation;
 
   const _WorkspaceHeader({
     required this.workspace,
@@ -98,52 +157,166 @@ class _WorkspaceHeader extends StatelessWidget {
     required this.isSelected,
     required this.priorityStatus,
     required this.onToggle,
+    required this.onRename,
+    required this.onDelete,
     required this.onAddConversation,
   });
 
   @override
+  State<_WorkspaceHeader> createState() => _WorkspaceHeaderState();
+}
+
+class _WorkspaceHeaderState extends State<_WorkspaceHeader> with SingleTickerProviderStateMixin {
+  bool _isLongPressing = false;
+  late AnimationController _longPressController;
+
+  String get _actionId => 'ws_${widget.workspace.workspaceId}';
+
+  @override
+  void initState() {
+    super.initState();
+    _longPressController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 400),
+    );
+  }
+
+  @override
+  void dispose() {
+    _longPressController.dispose();
+    super.dispose();
+  }
+
+  void _onLongPressComplete(WidgetRef ref) {
+    ref.read(activeActionItemProvider.notifier).state = _actionId;
+    setState(() => _isLongPressing = false);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onToggle,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        color: isSelected ? AppColors.sidebarSelected : null,
+    return Consumer(
+      builder: (context, ref, child) {
+        final activeId = ref.watch(activeActionItemProvider);
+        final showActions = activeId == _actionId;
+
+        // 애니메이션 완료 리스너 설정
+        _longPressController.removeStatusListener((_) {});
+        _longPressController.addStatusListener((status) {
+          if (status == AnimationStatus.completed) {
+            _onLongPressComplete(ref);
+          }
+        });
+
+        return GestureDetector(
+          onLongPressStart: (_) {
+            setState(() => _isLongPressing = true);
+            _longPressController.forward(from: 0);
+          },
+          onLongPressEnd: (_) {
+            if (!showActions) {
+              _longPressController.reset();
+              setState(() => _isLongPressing = false);
+            }
+          },
+          onTap: () {
+            if (showActions) {
+              ref.read(activeActionItemProvider.notifier).state = null;
+            } else {
+              widget.onToggle();
+            }
+          },
+          child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        decoration: BoxDecoration(
+          color: widget.isSelected ? AppColors.sidebarSelected : null,
+          border: Border(
+            left: BorderSide(
+              color: widget.isSelected ? AppColors.accent : Colors.transparent,
+              width: 3,
+            ),
+          ),
+        ),
         child: Row(
           children: [
             // 펼침/접힘 아이콘
             Icon(
-              isExpanded ? Icons.expand_more : Icons.chevron_right,
-              size: 18,
-              color: AppColors.textMuted,
+              widget.isExpanded ? Icons.expand_more : Icons.chevron_right,
+              size: 20,
+              color: AppColors.textSecondary,
             ),
 
             // Pylon 아이콘
-            Text(pylonIcon, style: const TextStyle(fontSize: 14)),
-            const SizedBox(width: 6),
+            Text(widget.pylonIcon, style: const TextStyle(fontSize: 16)),
+            const SizedBox(width: 8),
 
             // 워크스페이스 이름
             Expanded(
               child: Text(
-                workspace.name,
+                '📁 ${widget.workspace.name}',
                 style: TextStyle(
-                  color: isSelected ? AppColors.textPrimary : AppColors.textSecondary,
-                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: widget.isSelected ? AppColors.textPrimary : AppColors.textSecondary,
                 ),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
 
-            // 상태 닷 (접힌 상태일 때만, 또는 항상)
-            if (!isExpanded || priorityStatus != 'idle')
-              _StatusDot(status: priorityStatus),
+            // 상태 점 (idle이 아닐 때)
+            if (widget.priorityStatus != 'idle' && !showActions && !_isLongPressing)
+              Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: _StatusDot(status: widget.priorityStatus),
+              ),
+
+            // 롱프레스 진행 표시
+            if (_isLongPressing)
+              AnimatedBuilder(
+                animation: _longPressController,
+                builder: (context, child) => SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    value: _longPressController.value,
+                    strokeWidth: 2,
+                    color: AppColors.accent,
+                  ),
+                ),
+              )
+            // 편집 버튼들 (롱프레스 완료 시)
+            else if (showActions) ...[
+              _MiniIconButton(
+                icon: Icons.edit,
+                onTap: () {
+                  ref.read(activeActionItemProvider.notifier).state = null;
+                  widget.onRename();
+                },
+              ),
+              _MiniIconButton(
+                icon: Icons.delete,
+                onTap: () {
+                  ref.read(activeActionItemProvider.notifier).state = null;
+                  widget.onDelete();
+                },
+                color: AppColors.statusError,
+              ),
+            ] else
+              // + 버튼 (대화 추가)
+              _AddButton(
+                onAdd: widget.onAddConversation,
+                existingConversations: widget.workspace.conversations,
+              ),
           ],
         ),
       ),
+        );
+      },
     );
   }
 }
 
-class _ConversationItem extends ConsumerWidget {
+/// 대화 항목
+class _ConversationItem extends ConsumerStatefulWidget {
   final ConversationInfo conversation;
   final String workspaceId;
   final int deviceId;
@@ -157,31 +330,146 @@ class _ConversationItem extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return InkWell(
+  ConsumerState<_ConversationItem> createState() => _ConversationItemState();
+}
+
+class _ConversationItemState extends ConsumerState<_ConversationItem> with SingleTickerProviderStateMixin {
+  _EditMode _editMode = _EditMode.none;
+  bool _isLongPressing = false;
+  late AnimationController _longPressController;
+  final TextEditingController _renameController = TextEditingController();
+
+  String get _actionId => 'conv_${widget.conversation.conversationId}';
+
+  @override
+  void initState() {
+    super.initState();
+    _longPressController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 400),
+    );
+    _longPressController.addStatusListener((status) {
+      if (status == AnimationStatus.completed) {
+        ref.read(activeActionItemProvider.notifier).state = _actionId;
+        setState(() => _isLongPressing = false);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _longPressController.dispose();
+    _renameController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final activeId = ref.watch(activeActionItemProvider);
+    final showActions = activeId == _actionId;
+
+    if (_editMode == _EditMode.rename) {
+      return _RenameRow(
+        icon: '',
+        controller: _renameController,
+        onConfirm: _confirmRename,
+        onCancel: _cancelEdit,
+        isWorkspace: false,
+      );
+    }
+
+    if (_editMode == _EditMode.delete) {
+      return _DeleteConfirmRow(
+        icon: '',
+        name: widget.conversation.name,
+        onConfirm: _confirmDelete,
+        onCancel: _cancelEdit,
+        isWorkspace: false,
+      );
+    }
+
+    return GestureDetector(
+      onLongPressStart: (_) {
+        setState(() => _isLongPressing = true);
+        _longPressController.forward(from: 0);
+      },
+      onLongPressEnd: (_) {
+        if (!showActions) {
+          _longPressController.reset();
+          setState(() => _isLongPressing = false);
+        }
+      },
       onTap: () {
-        ref.read(selectedItemProvider.notifier).selectConversation(
-          deviceId, workspaceId, conversation.conversationId,
-        );
+        if (showActions) {
+          ref.read(activeActionItemProvider.notifier).state = null;
+        } else {
+          ref.read(selectedItemProvider.notifier).selectConversation(
+            widget.deviceId, widget.workspaceId, widget.conversation.conversationId,
+          );
+        }
       },
       child: Container(
-        padding: const EdgeInsets.only(left: 32, right: 8, top: 4, bottom: 4),
-        color: isSelected ? AppColors.sidebarSelected : null,
+        padding: const EdgeInsets.only(left: 44, right: 8, top: 6, bottom: 6),
+        color: widget.isSelected ? AppColors.sidebarSelected.withOpacity(0.5) : null,
         child: Row(
           children: [
-            const Text('', style: TextStyle(fontSize: 12)),
+            // 스킬 타입 아이콘
+            Text(
+              widget.conversation.skillIcon,
+              style: const TextStyle(fontSize: 12),
+            ),
             const SizedBox(width: 6),
+
+            // 대화 이름
             Expanded(
               child: Text(
-                conversation.name,
+                widget.conversation.name,
                 style: TextStyle(
                   fontSize: 13,
-                  color: isSelected ? AppColors.textPrimary : AppColors.textSecondary,
+                  color: widget.isSelected ? AppColors.textPrimary : AppColors.textSecondary,
                 ),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            _StatusDot(status: _getConversationStatus()),
+
+            // 롱프레스 진행 표시
+            if (_isLongPressing)
+              AnimatedBuilder(
+                animation: _longPressController,
+                builder: (context, child) => SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    value: _longPressController.value,
+                    strokeWidth: 2,
+                    color: AppColors.accent,
+                  ),
+                ),
+              )
+            // 편집 버튼들 (롱프레스 완료 시)
+            else if (showActions) ...[
+              _MiniIconButton(
+                icon: Icons.edit,
+                onTap: () {
+                  ref.read(activeActionItemProvider.notifier).state = null;
+                  setState(() {
+                    _editMode = _EditMode.rename;
+                    _renameController.text = widget.conversation.name;
+                  });
+                },
+                size: 14,
+              ),
+              _MiniIconButton(
+                icon: Icons.delete,
+                onTap: () {
+                  ref.read(activeActionItemProvider.notifier).state = null;
+                  setState(() => _editMode = _EditMode.delete);
+                },
+                color: AppColors.statusError,
+                size: 14,
+              ),
+            ] else
+              _StatusDot(status: _getConversationStatus()),
           ],
         ),
       ),
@@ -189,13 +477,40 @@ class _ConversationItem extends ConsumerWidget {
   }
 
   String _getConversationStatus() {
-    if (conversation.hasError) return 'error';
-    if (conversation.isWorking || conversation.isWaiting) return 'working';
-    if (conversation.unread) return 'unread';
+    if (widget.conversation.hasError) return 'error';
+    if (widget.conversation.isWorking || widget.conversation.isWaiting) return 'working';
+    if (widget.conversation.unread) return 'unread';
     return 'idle';
+  }
+
+  void _confirmRename() {
+    final newName = _renameController.text.trim();
+    if (newName.isNotEmpty && newName != widget.conversation.name) {
+      ref.read(pylonWorkspacesProvider.notifier).renameConversation(
+        widget.deviceId,
+        widget.workspaceId,
+        widget.conversation.conversationId,
+        newName,
+      );
+    }
+    _cancelEdit();
+  }
+
+  void _confirmDelete() {
+    ref.read(pylonWorkspacesProvider.notifier).deleteConversation(
+      widget.deviceId,
+      widget.workspaceId,
+      widget.conversation.conversationId,
+    );
+    _cancelEdit();
+  }
+
+  void _cancelEdit() {
+    setState(() => _editMode = _EditMode.none);
   }
 }
 
+/// 태스크 항목
 class _TaskItem extends ConsumerWidget {
   final TaskInfo task;
   final String workspaceId;
@@ -218,12 +533,16 @@ class _TaskItem extends ConsumerWidget {
         );
       },
       child: Container(
-        padding: const EdgeInsets.only(left: 32, right: 8, top: 4, bottom: 4),
-        color: isSelected ? AppColors.sidebarSelected : null,
+        padding: const EdgeInsets.only(left: 44, right: 8, top: 6, bottom: 6),
+        color: isSelected ? AppColors.sidebarSelected.withOpacity(0.5) : null,
         child: Row(
           children: [
-            const Text('', style: TextStyle(fontSize: 12)),
-            const SizedBox(width: 6),
+            Icon(
+              Icons.task_alt,
+              size: 14,
+              color: isSelected ? AppColors.textPrimary : AppColors.textSecondary,
+            ),
+            const SizedBox(width: 8),
             Expanded(
               child: Text(
                 task.title,
@@ -245,45 +564,453 @@ class _TaskItem extends ConsumerWidget {
     if (task.isFailed) return 'error';
     if (task.isRunning) return 'working';
     if (task.isDone) return 'done';
-    return 'idle'; // pending
+    return 'idle';
   }
 }
 
-class _AddConversationButton extends StatelessWidget {
-  final VoidCallback onTap;
+/// + 버튼 (대화 생성 다이얼로그)
+class _AddButton extends StatelessWidget {
+  final void Function({required String skillType, required String name}) onAdd;
+  final List<ConversationInfo> existingConversations;
 
-  const _AddConversationButton({required this.onTap});
+  const _AddButton({
+    required this.onAdd,
+    required this.existingConversations,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: () => _showCreateDialog(context),
+      borderRadius: BorderRadius.circular(4),
+      child: Padding(
+        padding: const EdgeInsets.all(4),
+        child: Icon(
+          Icons.add,
+          size: 18,
+          color: AppColors.textSecondary,
+        ),
+      ),
+    );
+  }
+
+  void _showCreateDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => _NewConversationDialog(
+        existingConversations: existingConversations,
+        onConfirm: (skillType, name) {
+          onAdd(skillType: skillType, name: name);
+        },
+      ),
+    );
+  }
+}
+
+/// 새 대화 생성 다이얼로그
+class _NewConversationDialog extends StatefulWidget {
+  final List<ConversationInfo> existingConversations;
+  final void Function(String skillType, String name) onConfirm;
+
+  const _NewConversationDialog({
+    required this.existingConversations,
+    required this.onConfirm,
+  });
+
+  @override
+  State<_NewConversationDialog> createState() => _NewConversationDialogState();
+}
+
+class _NewConversationDialogState extends State<_NewConversationDialog> {
+  static const _skillTypes = [
+    ('general', '💬', '대화'),
+    ('planner', '📋', '플랜'),
+    ('worker', '🔧', '구현'),
+  ];
+
+  int _selectedIndex = 0;
+  late TextEditingController _nameController;
+  bool _nameManuallyEdited = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: _generateDefaultName());
+    _nameController.addListener(_onNameChanged);
+  }
+
+  @override
+  void dispose() {
+    _nameController.removeListener(_onNameChanged);
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  void _onNameChanged() {
+    // 사용자가 직접 수정했는지 체크
+    final defaultName = _generateDefaultName();
+    if (_nameController.text != defaultName) {
+      _nameManuallyEdited = true;
+    }
+  }
+
+  String _generateDefaultName() {
+    final skillType = _skillTypes[_selectedIndex];
+    final baseName = skillType.$3;
+
+    // 동일 이름 개수 찾기
+    int count = 1;
+    while (true) {
+      final name = '$baseName$count';
+      final exists = widget.existingConversations.any((c) => c.name == name);
+      if (!exists) break;
+      count++;
+    }
+    return '$baseName$count';
+  }
+
+  void _cycleSkillType() {
+    setState(() {
+      _selectedIndex = (_selectedIndex + 1) % _skillTypes.length;
+      // 이름을 직접 수정하지 않았으면 기본 이름 업데이트
+      if (!_nameManuallyEdited) {
+        _nameController.text = _generateDefaultName();
+      }
+    });
+  }
+
+  void _confirm() {
+    final name = _nameController.text.trim();
+    if (name.isEmpty) return;
+
+    widget.onConfirm(_skillTypes[_selectedIndex].$1, name);
+    Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final skill = _skillTypes[_selectedIndex];
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isMobile = screenWidth < 600;
+
+    return AlertDialog(
+      backgroundColor: AppColors.cardBg,
+      contentPadding: EdgeInsets.all(isMobile ? 16 : 20),
+      content: SizedBox(
+        width: isMobile ? double.maxFinite : 280,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // 페르소나 사이클 버튼
+            InkWell(
+              onTap: _cycleSkillType,
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                decoration: BoxDecoration(
+                  color: AppColors.sidebarSelected,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(skill.$2, style: const TextStyle(fontSize: 24)),
+                    const SizedBox(width: 12),
+                    Text(
+                      skill.$3,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const Spacer(),
+                    Icon(
+                      Icons.swap_horiz,
+                      size: 20,
+                      color: AppColors.textSecondary,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            // 대화명 입력
+            TextField(
+              controller: _nameController,
+              autofocus: true,
+              style: TextStyle(
+                fontSize: 14,
+                color: AppColors.textPrimary,
+              ),
+              decoration: InputDecoration(
+                labelText: '대화명',
+                labelStyle: TextStyle(color: AppColors.textSecondary),
+                filled: true,
+                fillColor: AppColors.sidebarBg,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide.none,
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(color: AppColors.accent),
+                ),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              ),
+              onSubmitted: (_) => _confirm(),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text('취소', style: TextStyle(color: AppColors.textSecondary)),
+        ),
+        ElevatedButton(
+          onPressed: _confirm,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.accent,
+            foregroundColor: Colors.white,
+          ),
+          child: const Text('생성'),
+        ),
+      ],
+    );
+  }
+}
+
+/// 작은 아이콘 버튼
+class _MiniIconButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+  final Color? color;
+  final double size;
+
+  const _MiniIconButton({
+    required this.icon,
+    required this.onTap,
+    this.color,
+    this.size = 16,
+  });
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.only(left: 32, right: 8, top: 4, bottom: 4),
-        child: Row(
-          children: [
-            Icon(Icons.add, size: 14, color: AppColors.textMuted),
-            const SizedBox(width: 6),
-            Text(
-              '새 대화',
-              style: TextStyle(fontSize: 12, color: AppColors.textMuted),
-            ),
-          ],
+      borderRadius: BorderRadius.circular(4),
+      child: Padding(
+        padding: const EdgeInsets.all(4),
+        child: Icon(
+          icon,
+          size: size,
+          color: color ?? AppColors.textPrimary,
         ),
       ),
     );
   }
 }
 
-class _StatusDot extends StatelessWidget {
+/// 이름 변경 행
+class _RenameRow extends StatelessWidget {
+  final String icon;
+  final TextEditingController controller;
+  final VoidCallback onConfirm;
+  final VoidCallback onCancel;
+  final bool isWorkspace;
+
+  const _RenameRow({
+    required this.icon,
+    required this.controller,
+    required this.onConfirm,
+    required this.onCancel,
+    required this.isWorkspace,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.only(
+        left: isWorkspace ? 8 : 44,
+        right: 4,
+        top: 4,
+        bottom: 4,
+      ),
+      child: Row(
+        children: [
+          if (isWorkspace) ...[
+            const SizedBox(width: 20), // 펼침 아이콘 자리
+            Text(icon, style: const TextStyle(fontSize: 16)),
+            const SizedBox(width: 8),
+          ],
+          Expanded(
+            child: TextField(
+              controller: controller,
+              autofocus: true,
+              style: TextStyle(
+                fontSize: isWorkspace ? 14 : 13,
+                color: AppColors.textPrimary,
+              ),
+              decoration: InputDecoration(
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                border: const OutlineInputBorder(),
+                focusedBorder: OutlineInputBorder(
+                  borderSide: BorderSide(color: AppColors.accent),
+                ),
+              ),
+              onSubmitted: (_) => onConfirm(),
+            ),
+          ),
+          _MiniIconButton(
+            icon: Icons.check,
+            onTap: onConfirm,
+            color: AppColors.statusSuccess,
+          ),
+          _MiniIconButton(
+            icon: Icons.close,
+            onTap: onCancel,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 삭제 확인 행
+class _DeleteConfirmRow extends StatelessWidget {
+  final String icon;
+  final String name;
+  final VoidCallback onConfirm;
+  final VoidCallback onCancel;
+  final bool isWorkspace;
+
+  const _DeleteConfirmRow({
+    required this.icon,
+    required this.name,
+    required this.onConfirm,
+    required this.onCancel,
+    required this.isWorkspace,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.only(
+        left: isWorkspace ? 8 : 44,
+        right: 4,
+        top: 6,
+        bottom: 6,
+      ),
+      color: AppColors.statusError.withOpacity(0.1),
+      child: Row(
+        children: [
+          if (isWorkspace) ...[
+            const SizedBox(width: 20),
+            Text(icon, style: const TextStyle(fontSize: 16)),
+            const SizedBox(width: 8),
+          ],
+          Expanded(
+            child: Text(
+              '삭제하시겠습니까?',
+              style: TextStyle(
+                fontSize: isWorkspace ? 14 : 13,
+                color: AppColors.statusError,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          _MiniIconButton(
+            icon: Icons.check,
+            onTap: onConfirm,
+            color: AppColors.statusError,
+          ),
+          _MiniIconButton(
+            icon: Icons.close,
+            onTap: onCancel,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 상태 표시 점 (working/permission 상태일 때 점멸)
+class _StatusDot extends StatefulWidget {
   final String status;
 
   const _StatusDot({required this.status});
 
   @override
+  State<_StatusDot> createState() => _StatusDotState();
+}
+
+class _StatusDotState extends State<_StatusDot> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _animation;
+
+  bool get _shouldBlink =>
+      widget.status == 'working' ||
+      widget.status == 'waiting' ||
+      widget.status == 'permission';
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    );
+    _animation = Tween<double>(begin: 0.3, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+    );
+    _updateAnimation();
+  }
+
+  @override
+  void didUpdateWidget(_StatusDot oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.status != widget.status) {
+      _updateAnimation();
+    }
+  }
+
+  void _updateAnimation() {
+    if (_shouldBlink) {
+      _controller.repeat(reverse: true);
+    } else {
+      _controller.stop();
+      _controller.value = 1.0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final color = _getColor();
     if (color == null) return const SizedBox.shrink();
+
+    if (_shouldBlink) {
+      return AnimatedBuilder(
+        animation: _animation,
+        builder: (context, child) => Container(
+          width: 8,
+          height: 8,
+          margin: const EdgeInsets.only(left: 4),
+          decoration: BoxDecoration(
+            color: color.withOpacity(_animation.value),
+            shape: BoxShape.circle,
+          ),
+        ),
+      );
+    }
 
     return Container(
       width: 8,
@@ -297,8 +1024,10 @@ class _StatusDot extends StatelessWidget {
   }
 
   Color? _getColor() {
-    switch (status) {
+    switch (widget.status) {
       case 'error':
+      case 'permission':
+      case 'waiting':
         return AppColors.statusError;
       case 'working':
         return AppColors.statusWorking;

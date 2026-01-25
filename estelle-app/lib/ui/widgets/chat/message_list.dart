@@ -72,7 +72,51 @@ class _MessageListState extends ConsumerState<MessageList> {
     final isLoadingHistory = ref.watch(isLoadingHistoryProvider);
     final hasMoreHistory = ref.watch(hasMoreHistoryProvider);
 
+    final claudeState = ref.watch(claudeStateProvider);
+
     if (messages.isEmpty && textBuffer.isEmpty) {
+      // 초기 로드 중이면 로딩 인디케이터 표시
+      if (isLoadingHistory) {
+        return Container(
+          color: NordColors.nord0,
+          child: const Center(
+            child: CircularProgressIndicator(
+              color: NordColors.nord9,
+            ),
+          ),
+        );
+      }
+
+      // 대화 초기화 중 (working 상태)
+      if (claudeState == 'working') {
+        return Container(
+          color: NordColors.nord0,
+          child: const Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: NordColors.nord8,
+                  ),
+                ),
+                SizedBox(height: 16),
+                Text(
+                  '대화를 시작하는 중...',
+                  style: TextStyle(
+                    color: NordColors.nord4,
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+
       return Container(
         color: NordColors.nord0,
         child: const Center(

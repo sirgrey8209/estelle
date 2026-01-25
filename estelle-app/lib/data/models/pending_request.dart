@@ -1,3 +1,10 @@
+/// JSON에서 List를 안전하게 추출
+List<dynamic>? _safeList(dynamic value) {
+  if (value == null) return null;
+  if (value is List) return value;
+  return null;
+}
+
 /// Base class for pending requests
 sealed class PendingRequest {
   String get toolUseId;
@@ -87,7 +94,7 @@ class QuestionItem {
     return QuestionItem(
       question: json['question'] as String? ?? '',
       header: json['header'] as String? ?? 'Question',
-      options: (json['options'] as List<dynamic>?)
+      options: (_safeList(json['options']))
           ?.map((e) => e.toString())
           .toList() ?? [],
       multiSelect: json['multiSelect'] as bool? ?? false,

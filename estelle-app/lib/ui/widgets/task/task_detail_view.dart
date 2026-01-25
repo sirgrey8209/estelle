@@ -426,8 +426,7 @@ class _RunningTaskView extends StatelessWidget {
             ),
           ),
 
-          // 채팅 영역 - 워커 대화는 deskId로 'worker-{workspaceId}' 사용
-          // 현재는 간단히 메시지 표시 (추후 ChatArea 통합)
+          // 채팅 영역 - 워커 대화 (추후 ChatArea 통합)
           const Expanded(
             child: Center(
               child: Text(

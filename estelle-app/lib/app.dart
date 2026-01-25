@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/theme/app_theme.dart';
 import 'state/providers/relay_provider.dart';
-import 'state/providers/desk_provider.dart';
 import 'state/providers/workspace_provider.dart';
 import 'ui/layouts/responsive_layout.dart';
 
@@ -26,24 +25,11 @@ class _EstelleAppState extends ConsumerState<EstelleApp> {
 
   @override
   Widget build(BuildContext context) {
-    // Listen for auth changes to request desk list and workspace list
+    // Listen for auth changes to request workspace list
     ref.listen<AsyncValue<bool>>(authStateProvider, (prev, next) {
       if (next.valueOrNull == true) {
         // 워크스페이스 목록 요청
         ref.read(pylonWorkspacesProvider.notifier).requestWorkspaceList();
-
-        // Auto-select first desk when connected (기존 데스크 모드용)
-        Future.delayed(const Duration(milliseconds: 500), () {
-          final desks = ref.read(allDesksProvider);
-          final selectedDesk = ref.read(selectedDeskProvider);
-          if (selectedDesk == null && desks.isNotEmpty) {
-            final activeDesk = desks.firstWhere(
-              (d) => d.isActive && !d.isOffline,
-              orElse: () => desks.first,
-            );
-            ref.read(selectedDeskProvider.notifier).select(activeDesk);
-          }
-        });
       }
     });
 

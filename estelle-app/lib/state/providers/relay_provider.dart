@@ -1,14 +1,12 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/services/relay_service.dart';
-import 'desk_provider.dart';
-import 'claude_provider.dart';
+import 'workspace_provider.dart';
 
 /// Loading state enum for connection overlay
 enum LoadingState {
-  connecting,    // 연결이 끊어짐 / 재연결 중
-  loadingDesks,  // 연결됨, 데스크 목록 대기
-  loadingMessages, // 데스크 선택됨, 채팅 로드 중
-  ready,         // 모든 로딩 완료
+  connecting,         // 연결이 끊어짐 / 재연결 중
+  loadingWorkspaces,  // 연결됨, 워크스페이스 목록 대기
+  ready,              // 모든 로딩 완료
 }
 
 /// RelayService singleton provider
@@ -45,12 +43,11 @@ final loadingStateProvider = Provider<LoadingState>((ref) {
   // Use StreamProvider for reactive connection state
   final connectionAsync = ref.watch(connectionStateProvider);
   final isConnected = connectionAsync.valueOrNull ?? ref.read(relayServiceProvider).isConnected;
-  final desks = ref.watch(allDesksProvider);
-  final selectedDesk = ref.watch(selectedDeskProvider);
-  final messages = ref.watch(claudeMessagesProvider);
+  final pylons = ref.watch(pylonWorkspacesProvider);
 
   if (!isConnected) return LoadingState.connecting;
-  if (desks.isEmpty) return LoadingState.loadingDesks;
-  if (selectedDesk != null && messages.isEmpty) return LoadingState.loadingMessages;
+  // Pylon 응답이 하나라도 있으면 로딩 완료 (워크스페이스가 없어도 OK)
+  if (pylons.isEmpty) return LoadingState.loadingWorkspaces;
+  // 새 대화는 메시지가 없어도 정상이므로 loadingMessages 상태 제거
   return LoadingState.ready;
 });

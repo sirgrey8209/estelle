@@ -1,10 +1,18 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/models/claude_message.dart';
-import '../../data/models/desk_info.dart';
 import '../../data/models/pending_request.dart';
 import '../../data/services/relay_service.dart';
 import 'relay_provider.dart';
-import 'desk_provider.dart';
+import 'workspace_provider.dart';
+
+/// JSON에서 List를 안전하게 추출
+List<dynamic>? _safeList(dynamic value) {
+  if (value == null) return null;
+  if (value is List) return value;
+  debugPrint('[WARN] Expected List but got ${value.runtimeType}');
+  return null;
+}
 
 /// Claude state (idle, working, permission)
 final claudeStateProvider = StateProvider<String>((ref) => 'idle');
@@ -33,8 +41,8 @@ final prependedCountProvider = StateProvider<int>((ref) => 0);
 class ClaudeMessagesNotifier extends StateNotifier<List<ClaudeMessage>> {
   final RelayService _relay;
   final Ref _ref;
-  final Map<String, List<ClaudeMessage>> _deskMessagesCache = {};
-  final Map<String, List<PendingRequest>> _deskRequestsCache = {};
+  final Map<String, List<ClaudeMessage>> _conversationMessagesCache = {};
+  final Map<String, List<PendingRequest>> _conversationRequestsCache = {};
 
   ClaudeMessagesNotifier(this._relay, this._ref) : super([]) {
     _relay.messageStream.listen(_handleMessage);
@@ -43,9 +51,9 @@ class ClaudeMessagesNotifier extends StateNotifier<List<ClaudeMessage>> {
   void _handleMessage(Map<String, dynamic> data) {
     final type = data['type'] as String?;
 
-    // desk_sync_result 처리
-    if (type == 'desk_sync_result') {
-      _handleDeskSyncResult(data['payload'] as Map<String, dynamic>?);
+    // conversation_sync_result 처리
+    if (type == 'conversation_sync_result') {
+      _handleConversationSyncResult(data['payload'] as Map<String, dynamic>?);
       return;
     }
 
@@ -60,41 +68,40 @@ class ClaudeMessagesNotifier extends StateNotifier<List<ClaudeMessage>> {
     final payload = data['payload'] as Map<String, dynamic>?;
     if (payload == null) return;
 
-    final deskId = payload['deskId'] as String?;
+    final conversationId = payload['conversationId'] as String?;
     final event = payload['event'] as Map<String, dynamic>?;
-    if (deskId == null || event == null) return;
+    if (conversationId == null || event == null) return;
 
-    final selectedDesk = _ref.read(selectedDeskProvider);
-    if (selectedDesk?.deskId == deskId) {
+    final selectedItem = _ref.read(selectedItemProvider);
+    if (selectedItem != null && selectedItem.isConversation && selectedItem.itemId == conversationId) {
       _handleClaudeEvent(event);
     } else {
-      _saveEventForDesk(deskId, event);
+      _saveEventForConversation(conversationId, event);
     }
   }
 
-  void _handleDeskSyncResult(Map<String, dynamic>? payload) {
+  void _handleConversationSyncResult(Map<String, dynamic>? payload) {
     if (payload == null) return;
 
     final deviceId = payload['deviceId'] as int?;
-    final deskId = payload['deskId'] as String?;
-    final messagesRaw = payload['messages'] as List<dynamic>?;
+    final conversationId = payload['conversationId'] as String?;
+    final messagesRaw = _safeList(payload['messages']);
     final totalCount = payload['totalCount'] as int? ?? 0;
     final pendingEvent = payload['pendingEvent'] as Map<String, dynamic>?;
 
-    if (deskId == null) return;
+    if (conversationId == null) return;
 
-    final selectedDesk = _ref.read(selectedDeskProvider);
-    if (selectedDesk?.deskId != deskId) return;
+    final selectedItem = _ref.read(selectedItemProvider);
+    if (selectedItem == null || !selectedItem.isConversation || selectedItem.itemId != conversationId) return;
 
     // 메시지가 비어있고 totalCount > 0이면 history_request로 받아야 함
     if ((messagesRaw == null || messagesRaw.isEmpty) && totalCount > 0 && deviceId != null) {
-      // 최근 50개만 요청
-      _relay.requestHistory(deviceId, deskId, limit: 50, offset: 0);
+      _relay.requestHistory(deviceId, selectedItem.workspaceId, conversationId, limit: 50, offset: 0);
       _ref.read(hasMoreHistoryProvider.notifier).state = totalCount > 50;
       return;
     }
 
-    // 메시지 히스토리 복원 (하위 호환성)
+    // 메시지 히스토리 복원
     if (messagesRaw != null && messagesRaw.isNotEmpty) {
       final messages = _parseMessages(messagesRaw);
       state = messages;
@@ -107,13 +114,16 @@ class ClaudeMessagesNotifier extends StateNotifier<List<ClaudeMessage>> {
       _handleClaudeEvent(pendingEvent);
     }
 
-    // 상태 복원 (Pylon에서 보내주는 hasActiveSession 기반)
+    // 상태 복원
     final hasActiveSession = payload['hasActiveSession'] as bool? ?? false;
     if (hasActiveSession) {
       _ref.read(claudeStateProvider.notifier).state = 'working';
       _ref.read(isThinkingProvider.notifier).state = true;
+      // 타이머 복원 (정확한 시작 시간은 모르므로 현재 시간으로 설정)
+      if (_ref.read(workStartTimeProvider) == null) {
+        _ref.read(workStartTimeProvider.notifier).state = DateTime.now();
+      }
     } else if (pendingEvent != null) {
-      // pendingEvent가 있으면 permission 상태 (위에서 이미 처리됨)
       _ref.read(claudeStateProvider.notifier).state = 'permission';
     } else {
       _ref.read(claudeStateProvider.notifier).state = 'idle';
@@ -126,33 +136,54 @@ class ClaudeMessagesNotifier extends StateNotifier<List<ClaudeMessage>> {
   void _handleHistoryResult(Map<String, dynamic>? payload) {
     if (payload == null) return;
 
-    final deskId = payload['deskId'] as String?;
-    final messagesRaw = payload['messages'] as List<dynamic>?;
+    final conversationId = payload['conversationId'] as String?;
+    final messagesRaw = _safeList(payload['messages']);
     final hasMore = payload['hasMore'] as bool? ?? false;
     final offset = payload['offset'] as int? ?? 0;
+    final hasActiveSession = payload['hasActiveSession'] as bool? ?? false;
+    final workStartTime = payload['workStartTime'] as int?;
 
-    if (deskId == null) return;
+    if (conversationId == null) return;
 
-    final selectedDesk = _ref.read(selectedDeskProvider);
-    if (selectedDesk?.deskId != deskId) return;
+    final selectedItem = _ref.read(selectedItemProvider);
+    if (selectedItem == null || !selectedItem.isConversation || selectedItem.itemId != conversationId) return;
 
     _ref.read(isLoadingHistoryProvider.notifier).state = false;
     _ref.read(hasMoreHistoryProvider.notifier).state = hasMore;
 
     if (messagesRaw != null && messagesRaw.isNotEmpty) {
-      final olderMessages = _parseMessages(messagesRaw);
-      // Prepend older messages
-      state = [...olderMessages, ...state];
+      final messages = _parseMessages(messagesRaw);
+
+      if (offset == 0) {
+        // 초기 로드: 메시지 교체 (대화 전환 시 캐시된 메시지도 교체)
+        state = messages;
+
+        // 활성 세션 상태 복원
+        if (hasActiveSession) {
+          _ref.read(claudeStateProvider.notifier).state = 'working';
+          _ref.read(isThinkingProvider.notifier).state = true;
+          // 타이머 시작 시간 복원
+          if (workStartTime != null) {
+            _ref.read(workStartTimeProvider.notifier).state =
+                DateTime.fromMillisecondsSinceEpoch(workStartTime);
+          } else {
+            _ref.read(workStartTimeProvider.notifier).state = DateTime.now();
+          }
+        }
+      } else {
+        // 더 많은 히스토리 로드: 앞에 추가
+        state = [...messages, ...state];
+        _ref.read(prependedCountProvider.notifier).state = messages.length;
+      }
+
       _ref.read(historyOffsetProvider.notifier).state = offset + messagesRaw.length;
-      // Notify for scroll adjustment
-      _ref.read(prependedCountProvider.notifier).state = olderMessages.length;
     }
   }
 
   /// 더 많은 히스토리 로드 요청
   void loadMoreHistory() {
-    final selectedDesk = _ref.read(selectedDeskProvider);
-    if (selectedDesk == null) return;
+    final selectedItem = _ref.read(selectedItemProvider);
+    if (selectedItem == null || !selectedItem.isConversation) return;
 
     final isLoading = _ref.read(isLoadingHistoryProvider);
     final hasMore = _ref.read(hasMoreHistoryProvider);
@@ -162,8 +193,9 @@ class ClaudeMessagesNotifier extends StateNotifier<List<ClaudeMessage>> {
     final offset = _ref.read(historyOffsetProvider);
 
     _relay.requestHistory(
-      selectedDesk.deviceId,
-      selectedDesk.deskId,
+      selectedItem.deviceId,
+      selectedItem.workspaceId,
+      selectedItem.itemId,
       limit: 50,
       offset: offset,
     );
@@ -234,8 +266,7 @@ class ClaudeMessagesNotifier extends StateNotifier<List<ClaudeMessage>> {
 
     switch (eventType) {
       case 'userMessage':
-        // Pylon에서 브로드캐스트된 유저 메시지 (single source of truth)
-        _ref.read(sendingMessageProvider.notifier).state = null; // placeholder 제거
+        _ref.read(sendingMessageProvider.notifier).state = null;
         final content = event['content'] as String? ?? '';
         final timestamp = (event['timestamp'] as num?)?.toInt() ?? now;
         state = [
@@ -327,12 +358,12 @@ class ClaudeMessagesNotifier extends StateNotifier<List<ClaudeMessage>> {
 
       case 'askQuestion':
         _flushTextBuffer();
-        final questionsRaw = event['questions'] as List<dynamic>? ?? [];
+        final questionsRaw = _safeList(event['questions']) ?? [];
         final toolUseId = event['toolUseId'] as String? ?? '';
 
         final questions = questionsRaw.map((q) {
           final qMap = q as Map<String, dynamic>;
-          final optionsRaw = qMap['options'] as List<dynamic>?;
+          final optionsRaw = _safeList(qMap['options']);
           return QuestionItem(
             question: qMap['question'] as String? ?? '',
             header: qMap['header'] as String? ?? 'Question',
@@ -359,7 +390,6 @@ class ClaudeMessagesNotifier extends StateNotifier<List<ClaudeMessage>> {
 
       case 'state':
         final stateValue = event['state'] as String? ?? 'idle';
-        // pending 요청이 있으면 'permission' 상태 유지
         final hasPending = _ref.read(pendingRequestsProvider).isNotEmpty;
         if (hasPending && stateValue != 'permission') {
           _ref.read(claudeStateProvider.notifier).state = 'permission';
@@ -398,7 +428,6 @@ class ClaudeMessagesNotifier extends StateNotifier<List<ClaudeMessage>> {
       case 'error':
         _flushTextBuffer();
         final error = event['error'] as String? ?? 'Unknown error';
-        // pending 요청이 있으면 'permission' 상태 유지
         final hasPendingOnError = _ref.read(pendingRequestsProvider).isNotEmpty;
         _ref.read(claudeStateProvider.notifier).state = hasPendingOnError ? 'permission' : 'idle';
         _ref.read(isThinkingProvider.notifier).state = false;
@@ -414,7 +443,7 @@ class ClaudeMessagesNotifier extends StateNotifier<List<ClaudeMessage>> {
     }
   }
 
-  void _saveEventForDesk(String deskId, Map<String, dynamic> event) {
+  void _saveEventForConversation(String conversationId, Map<String, dynamic> event) {
     final eventType = event['type'] as String?;
     final now = DateTime.now().millisecondsSinceEpoch;
 
@@ -422,31 +451,31 @@ class ClaudeMessagesNotifier extends StateNotifier<List<ClaudeMessage>> {
       case 'userMessage':
         final content = event['content'] as String? ?? '';
         final timestamp = (event['timestamp'] as num?)?.toInt() ?? now;
-        final saved = _deskMessagesCache[deskId]?.toList() ?? [];
+        final saved = _conversationMessagesCache[conversationId]?.toList() ?? [];
         saved.add(UserTextMessage(
           id: '$timestamp-user',
           content: content,
           timestamp: timestamp,
         ));
-        _deskMessagesCache[deskId] = saved;
+        _conversationMessagesCache[conversationId] = saved;
         break;
 
       case 'textComplete':
         final text = event['text'] as String?;
         if (text != null) {
-          final saved = _deskMessagesCache[deskId]?.toList() ?? [];
+          final saved = _conversationMessagesCache[conversationId]?.toList() ?? [];
           saved.add(AssistantTextMessage(
             id: '$now',
             content: text,
             timestamp: now,
           ));
-          _deskMessagesCache[deskId] = saved;
+          _conversationMessagesCache[conversationId] = saved;
         }
         break;
 
       case 'result':
         final usage = event['usage'] as Map<String, dynamic>?;
-        final saved = _deskMessagesCache[deskId]?.toList() ?? [];
+        final saved = _conversationMessagesCache[conversationId]?.toList() ?? [];
         saved.add(ResultInfoMessage(
           id: '$now-result',
           durationMs: (event['duration_ms'] as num?)?.toInt() ?? 0,
@@ -455,23 +484,23 @@ class ClaudeMessagesNotifier extends StateNotifier<List<ClaudeMessage>> {
           cacheReadTokens: (usage?['cacheReadInputTokens'] as num?)?.toInt() ?? 0,
           timestamp: now,
         ));
-        _deskMessagesCache[deskId] = saved;
+        _conversationMessagesCache[conversationId] = saved;
         break;
 
       case 'error':
         final error = event['error'] as String? ?? 'Unknown error';
-        final saved = _deskMessagesCache[deskId]?.toList() ?? [];
+        final saved = _conversationMessagesCache[conversationId]?.toList() ?? [];
         saved.add(ErrorMessage(
           id: '$now-error',
           error: error,
           timestamp: now,
         ));
-        _deskMessagesCache[deskId] = saved;
+        _conversationMessagesCache[conversationId] = saved;
         break;
 
       case 'permission_request':
       case 'askQuestion':
-        final savedRequests = _deskRequestsCache[deskId]?.toList() ?? [];
+        final savedRequests = _conversationRequestsCache[conversationId]?.toList() ?? [];
         if (eventType == 'permission_request') {
           savedRequests.add(PermissionRequest(
             toolUseId: event['toolUseId'] as String? ?? '',
@@ -479,7 +508,7 @@ class ClaudeMessagesNotifier extends StateNotifier<List<ClaudeMessage>> {
             toolInput: (event['toolInput'] as Map<String, dynamic>?) ?? {},
           ));
         }
-        _deskRequestsCache[deskId] = savedRequests;
+        _conversationRequestsCache[conversationId] = savedRequests;
         break;
     }
   }
@@ -525,26 +554,30 @@ class ClaudeMessagesNotifier extends StateNotifier<List<ClaudeMessage>> {
     ];
   }
 
-  void saveCurrentDesk(String deskId) {
-    _deskMessagesCache[deskId] = state.toList();
+  /// 현재 대화 저장
+  void saveCurrentConversation(String conversationId) {
+    _conversationMessagesCache[conversationId] = state.toList();
     final requests = _ref.read(pendingRequestsProvider);
     if (requests.isNotEmpty) {
-      _deskRequestsCache[deskId] = requests.toList();
+      _conversationRequestsCache[conversationId] = requests.toList();
     } else {
-      _deskRequestsCache.remove(deskId);
+      _conversationRequestsCache.remove(conversationId);
     }
   }
 
-  void loadDesk(String deskId) {
-    state = _deskMessagesCache[deskId] ?? [];
-    final requests = _deskRequestsCache[deskId] ?? [];
+  /// 대화 로드
+  void loadConversation(String conversationId) {
+    final cachedMessages = _conversationMessagesCache[conversationId] ?? [];
+    state = cachedMessages;
+    final requests = _conversationRequestsCache[conversationId] ?? [];
     _ref.read(pendingRequestsProvider.notifier).replaceAll(requests);
     _ref.read(currentTextBufferProvider.notifier).state = '';
     _ref.read(claudeStateProvider.notifier).state = requests.isNotEmpty ? 'permission' : 'idle';
     _ref.read(isThinkingProvider.notifier).state = false;
     _ref.read(workStartTimeProvider.notifier).state = null;
     // Reset pagination state
-    _ref.read(isLoadingHistoryProvider.notifier).state = false;
+    // 캐시가 비어있으면 Pylon에서 히스토리 로드 중 (로딩 표시)
+    _ref.read(isLoadingHistoryProvider.notifier).state = cachedMessages.isEmpty;
     _ref.read(hasMoreHistoryProvider.notifier).state = true;
     _ref.read(historyOffsetProvider.notifier).state = 0;
   }
@@ -558,26 +591,31 @@ class ClaudeMessagesNotifier extends StateNotifier<List<ClaudeMessage>> {
     _ref.read(workStartTimeProvider.notifier).state = null;
   }
 
-  void clearDeskCache(String deskId) {
-    _deskMessagesCache.remove(deskId);
-    _deskRequestsCache.remove(deskId);
+  /// 대화 캐시 삭제
+  void clearConversationCache(String conversationId) {
+    _conversationMessagesCache.remove(conversationId);
+    _conversationRequestsCache.remove(conversationId);
   }
 
-  /// 데스크 선택 시 호출 - 현재 데스크 저장 + 새 데스크 로드 + sync 요청
-  void onDeskSelected(DeskInfo? oldDesk, DeskInfo newDesk) {
-    // 이전 데스크 저장
-    if (oldDesk != null) {
-      saveCurrentDesk(oldDesk.deskId);
+  /// 대화 선택 시 호출 - 현재 대화 저장 + 새 대화 로드 + sync 요청
+  void onConversationSelected(SelectedItem? oldItem, SelectedItem newItem) {
+    // 이전 대화 저장
+    if (oldItem != null && oldItem.isConversation) {
+      saveCurrentConversation(oldItem.itemId);
     }
 
-    // 새 데스크 로드 (캐시된 메시지가 있으면)
-    loadDesk(newDesk.deskId);
+    // 새 대화 로드 (캐시된 메시지가 있으면)
+    loadConversation(newItem.itemId);
 
-    // Pylon에 데스크 선택 알림 + sync 요청
-    _relay.selectDesk(newDesk.deviceId, newDesk.deskId);
+    // Pylon에 대화 선택 알림 + sync 요청
+    _relay.selectConversation(newItem.deviceId, newItem.workspaceId, newItem.itemId);
 
-    // 마지막 선택 데스크 저장
-    PylonDesksNotifier.saveLastDesk(newDesk.deviceId, newDesk.deskId);
+    // 마지막 선택 저장
+    PylonWorkspacesNotifier.saveLastWorkspace(
+      workspaceId: newItem.workspaceId,
+      itemType: 'conversation',
+      itemId: newItem.itemId,
+    );
   }
 }
 

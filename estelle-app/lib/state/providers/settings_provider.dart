@@ -4,7 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../data/models/claude_usage.dart';
 import '../../data/models/deploy_status.dart';
 import 'relay_provider.dart';
-import 'desk_provider.dart';
+import 'workspace_provider.dart';
 
 // ============ Claude Usage ============
 
@@ -121,7 +121,7 @@ class DeployTrackingNotifier extends StateNotifier<DeployStatus> {
     if (success) {
       // 이미 사전 승인된 경우 → 다른 Pylon 체크
       if (state.confirmed) {
-        final pylons = _ref.read(pylonListProvider);
+        final pylons = _ref.read(pylonListWorkspacesProvider);
         if (pylons.length <= 1) {
           // Pylon이 1대뿐이면 바로 ready
           state = state.copyWith(
@@ -247,7 +247,7 @@ class DeployTrackingNotifier extends StateNotifier<DeployStatus> {
 
     // 빌드 완료 상태에서 승인하면 → 다른 Pylon 체크
     if (newConfirmed && state.phase == DeployPhase.buildReady) {
-      final pylons = _ref.read(pylonListProvider);
+      final pylons = _ref.read(pylonListWorkspacesProvider);
       if (pylons.length <= 1) {
         state = state.copyWith(
           phase: DeployPhase.ready,

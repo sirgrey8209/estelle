@@ -52,7 +52,7 @@ Pylon을 파일 기반으로 제어하는 방법입니다.
     "pid": 12345,
     "deviceId": 1,
     "relayConnected": true,
-    "desktopClients": 1,
+    "clients": 1,
     "uptime": 3600
   }
 }

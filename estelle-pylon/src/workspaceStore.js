@@ -180,6 +180,16 @@ const workspaceStore = {
     return workspace.conversations.find(c => c.conversationId === conversationId) || null;
   },
 
+  findWorkspaceByConversation(conversationId) {
+    const store = this.load();
+    for (const workspace of store.workspaces) {
+      if (workspace.conversations.some(c => c.conversationId === conversationId)) {
+        return workspace.workspaceId;
+      }
+    }
+    return null;
+  },
+
   getActiveConversation() {
     const store = this.load();
     if (!store.activeWorkspaceId || !store.activeConversationId) return null;
@@ -190,7 +200,7 @@ const workspaceStore = {
     return workspace.conversations.find(c => c.conversationId === store.activeConversationId) || null;
   },
 
-  createConversation(workspaceId, name = '새 대화') {
+  createConversation(workspaceId, name = '새 대화', skillType = 'general') {
     const store = this.load();
     const workspace = store.workspaces.find(w => w.workspaceId === workspaceId);
     if (!workspace) return null;
@@ -198,6 +208,7 @@ const workspaceStore = {
     const newConversation = {
       conversationId: randomUUID(),
       name,
+      skillType, // general, planner, worker
       claudeSessionId: null,
       status: 'idle',
       unread: false,
@@ -209,7 +220,7 @@ const workspaceStore = {
     store.activeConversationId = newConversation.conversationId;
     this.save(store);
 
-    console.log(`[WorkspaceStore] Created conversation: ${name} in ${workspace.name}`);
+    console.log(`[WorkspaceStore] Created conversation: ${name} (${skillType}) in ${workspace.name}`);
     return newConversation;
   },
 

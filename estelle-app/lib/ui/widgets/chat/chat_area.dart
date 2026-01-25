@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/constants/colors.dart';
-import '../../../data/models/desk_info.dart';
-import '../../../state/providers/desk_provider.dart';
+import '../../../core/theme/app_colors.dart';
+import '../../../data/models/workspace_info.dart';
+import '../../../state/providers/workspace_provider.dart';
 import '../../../state/providers/claude_provider.dart';
 import '../../../state/providers/relay_provider.dart';
 import 'message_list.dart';
@@ -16,15 +17,25 @@ class ChatArea extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final selectedDesk = ref.watch(selectedDeskProvider);
+    final selectedItem = ref.watch(selectedItemProvider);
+    final selectedWorkspace = ref.watch(selectedWorkspaceProvider);
+    final selectedConversation = ref.watch(selectedConversationProvider);
 
-    if (selectedDesk == null) {
-      return const _NoDeskSelected();
+    if (selectedItem == null || selectedWorkspace == null) {
+      return const _NoItemSelected();
+    }
+
+    // 대화가 선택된 경우만 채팅 표시
+    if (!selectedItem.isConversation) {
+      return const _NoItemSelected();
     }
 
     return Column(
       children: [
-        if (showHeader) _ChatHeader(desk: selectedDesk),
+        if (showHeader) _ChatHeader(
+          workspace: selectedWorkspace,
+          conversation: selectedConversation,
+        ),
         const Expanded(child: MessageList()),
         const _BottomArea(),
       ],
@@ -33,9 +44,10 @@ class ChatArea extends ConsumerWidget {
 }
 
 class _ChatHeader extends ConsumerWidget {
-  final DeskInfo desk;
+  final WorkspaceInfo workspace;
+  final ConversationInfo? conversation;
 
-  const _ChatHeader({required this.desk});
+  const _ChatHeader({required this.workspace, this.conversation});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -51,27 +63,46 @@ class _ChatHeader extends ConsumerWidget {
       ),
       child: Row(
         children: [
-          // Left side: desk info
-          Text(desk.deviceIcon, style: const TextStyle(fontSize: 18)),
-          const SizedBox(width: 10),
+          // Left side: workspace info
           Expanded(
-            child: Text(
-              desk.deskName,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: NordColors.nord5,
-              ),
-              overflow: TextOverflow.ellipsis,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (conversation != null)
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          '💬 ${conversation!.name}',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: NordColors.nord5,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      _ConversationStatusDot(conversation: conversation!),
+                    ],
+                  ),
+                Text(
+                  '📁 ${workspace.workingDir}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: NordColors.nord4,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
             ),
           ),
-          const SizedBox(width: 10),
-          _StateBadge(state: claudeState),
 
           const Spacer(),
 
           // Right side: session menu button
-          _SessionMenuButton(desk: desk),
+          _SessionMenuButton(workspace: workspace, conversation: conversation),
         ],
       ),
     );
@@ -82,9 +113,10 @@ class _ChatHeader extends ConsumerWidget {
 final permissionModeProvider = StateProvider<String>((ref) => 'default');
 
 class _SessionMenuButton extends ConsumerWidget {
-  final DeskInfo desk;
+  final WorkspaceInfo workspace;
+  final ConversationInfo? conversation;
 
-  const _SessionMenuButton({required this.desk});
+  const _SessionMenuButton({required this.workspace, this.conversation});
 
   static const _permissionModes = ['default', 'acceptEdits', 'bypassPermissions'];
   static const _permissionLabels = {
@@ -170,14 +202,17 @@ class _SessionMenuButton extends ConsumerWidget {
   }
 
   void _handleMenuAction(BuildContext context, WidgetRef ref, String action) {
+    if (conversation == null) return;
+
     switch (action) {
       case 'new_session':
         _showNewSessionDialog(context, ref);
         break;
       case 'compact':
         ref.read(relayServiceProvider).sendClaudeControl(
-          desk.deviceId,
-          desk.deskId,
+          workspace.deviceId,
+          workspace.workspaceId,
+          conversation!.conversationId,
           'compact',
         );
         break;
@@ -185,6 +220,8 @@ class _SessionMenuButton extends ConsumerWidget {
   }
 
   void _showNewSessionDialog(BuildContext context, WidgetRef ref) {
+    if (conversation == null) return;
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -203,12 +240,13 @@ class _SessionMenuButton extends ConsumerWidget {
             style: ElevatedButton.styleFrom(backgroundColor: NordColors.nord11),
             onPressed: () {
               ref.read(relayServiceProvider).sendClaudeControl(
-                desk.deviceId,
-                desk.deskId,
+                workspace.deviceId,
+                workspace.workspaceId,
+                conversation!.conversationId,
                 'new_session',
               );
               ref.read(claudeMessagesProvider.notifier).clearMessages();
-              ref.read(claudeMessagesProvider.notifier).clearDeskCache(desk.deskId);
+              ref.read(claudeMessagesProvider.notifier).clearConversationCache(conversation!.conversationId);
               Navigator.pop(context);
             },
             child: const Text('새 세션 시작'),
@@ -261,30 +299,141 @@ class _BottomArea extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final currentRequest = ref.watch(currentRequestProvider);
+    final messages = ref.watch(claudeMessagesProvider);
+    final claudeState = ref.watch(claudeStateProvider);
 
     // 권한/질문 요청이 있으면 RequestBar
     if (currentRequest != null) {
       return const RequestBar();
     }
 
-    // 그 외에는 InputBar (히스토리 기반이므로 resume 자동 처리)
+    // 첫 응답 대기 중 (메시지 없고 working 상태) - 입력창 숨김
+    if (messages.isEmpty && claudeState == 'working') {
+      return const SizedBox.shrink();
+    }
+
+    // 그 외에는 InputBar
     return const InputBar();
   }
 }
 
-class _NoDeskSelected extends StatelessWidget {
-  const _NoDeskSelected();
+class _NoItemSelected extends StatelessWidget {
+  const _NoItemSelected();
 
   @override
   Widget build(BuildContext context) {
     return const Center(
       child: Text(
-        '좌측에서 데스크를 선택하거나 생성해주세요.',
+        '좌측에서 워크스페이스와 대화를 선택하거나 생성해주세요.',
         style: TextStyle(
           fontSize: 16,
           color: NordColors.nord3,
         ),
       ),
     );
+  }
+}
+
+/// 대화 상태 표시 점 (working/waiting 상태일 때 점멸)
+class _ConversationStatusDot extends StatefulWidget {
+  final ConversationInfo conversation;
+
+  const _ConversationStatusDot({required this.conversation});
+
+  @override
+  State<_ConversationStatusDot> createState() => _ConversationStatusDotState();
+}
+
+class _ConversationStatusDotState extends State<_ConversationStatusDot> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _animation;
+
+  String get _status {
+    if (widget.conversation.hasError) return 'error';
+    if (widget.conversation.isWorking || widget.conversation.isWaiting) return 'working';
+    if (widget.conversation.unread) return 'unread';
+    return 'idle';
+  }
+
+  bool get _shouldBlink => _status == 'working';
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    );
+    _animation = Tween<double>(begin: 0.3, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+    );
+    _updateAnimation();
+  }
+
+  @override
+  void didUpdateWidget(_ConversationStatusDot oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.conversation.status != widget.conversation.status) {
+      _updateAnimation();
+    }
+  }
+
+  void _updateAnimation() {
+    if (_shouldBlink) {
+      _controller.repeat(reverse: true);
+    } else {
+      _controller.stop();
+      _controller.value = 1.0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _getColor();
+    if (color == null) return const SizedBox.shrink();
+
+    if (_shouldBlink) {
+      return AnimatedBuilder(
+        animation: _animation,
+        builder: (context, child) => Container(
+          width: 8,
+          height: 8,
+          margin: const EdgeInsets.only(left: 6),
+          decoration: BoxDecoration(
+            color: color.withOpacity(_animation.value),
+            shape: BoxShape.circle,
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      width: 8,
+      height: 8,
+      margin: const EdgeInsets.only(left: 6),
+      decoration: BoxDecoration(
+        color: color,
+        shape: BoxShape.circle,
+      ),
+    );
+  }
+
+  Color? _getColor() {
+    switch (_status) {
+      case 'error':
+        return AppColors.statusError;
+      case 'working':
+        return AppColors.statusWorking;
+      case 'unread':
+        return AppColors.statusSuccess;
+      default:
+        return null;
+    }
   }
 }

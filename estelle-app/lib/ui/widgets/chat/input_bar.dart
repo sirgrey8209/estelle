@@ -1,10 +1,8 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'dart:io' show Platform;
 import '../../../core/constants/colors.dart';
-import '../../../state/providers/desk_provider.dart';
+import '../../../state/providers/workspace_provider.dart';
 import '../../../state/providers/claude_provider.dart';
 import '../../../state/providers/relay_provider.dart';
 
@@ -47,8 +45,10 @@ class _InputBarState extends ConsumerState<InputBar> {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
 
-    final desk = ref.read(selectedDeskProvider);
-    if (desk == null) return;
+    final selectedItem = ref.read(selectedItemProvider);
+    final selectedWorkspace = ref.read(selectedWorkspaceProvider);
+    if (selectedItem == null || selectedWorkspace == null) return;
+    if (!selectedItem.isConversation) return;
 
     // 작업 중이면 전송 안함
     final claudeState = ref.read(claudeStateProvider);
@@ -57,10 +57,11 @@ class _InputBarState extends ConsumerState<InputBar> {
     // 전송 중 placeholder 표시 (Pylon에서 userMessage 이벤트 오면 실제 메시지로 대체)
     ref.read(sendingMessageProvider.notifier).state = text;
 
-    // Send to relay
+    // Send to relay (workspace 기반)
     ref.read(relayServiceProvider).sendClaudeMessage(
-      desk.deviceId,
-      desk.deskId,
+      selectedItem.deviceId,
+      selectedItem.workspaceId,
+      selectedItem.itemId, // conversationId
       text,
     );
 
@@ -74,12 +75,13 @@ class _InputBarState extends ConsumerState<InputBar> {
   }
 
   void _stop() {
-    final desk = ref.read(selectedDeskProvider);
-    if (desk == null) return;
+    final selectedItem = ref.read(selectedItemProvider);
+    if (selectedItem == null || !selectedItem.isConversation) return;
 
     ref.read(relayServiceProvider).sendClaudeControl(
-      desk.deviceId,
-      desk.deskId,
+      selectedItem.deviceId,
+      selectedItem.workspaceId,
+      selectedItem.itemId,
       'stop',
     );
   }
@@ -103,15 +105,18 @@ class _InputBarState extends ConsumerState<InputBar> {
           Expanded(
             child: Focus(
               onKeyEvent: (node, event) {
-                // Desktop만: Enter=전송, Shift+Enter 또는 Ctrl+Enter=줄바꿈
-                final isDesktop = !kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
-                if (isDesktop &&
+                // 데스크탑(너비 600 이상): Enter=전송, Shift+Enter/Ctrl+Enter=줄바꿈
+                // 모바일(너비 600 미만): Enter=줄바꿈 (기본 동작)
+                final screenWidth = MediaQuery.of(context).size.width;
+                final isDesktopLayout = screenWidth >= 600;
+
+                if (isDesktopLayout &&
                     event is KeyDownEvent &&
                     event.logicalKey == LogicalKeyboardKey.enter &&
                     !HardwareKeyboard.instance.isShiftPressed &&
                     !HardwareKeyboard.instance.isControlPressed) {
                   _send();
-                  return KeyEventResult.handled; // 이벤트 소비 → 엔터 잔류 방지
+                  return KeyEventResult.handled;
                 }
                 return KeyEventResult.ignored;
               },

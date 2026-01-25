@@ -1,3 +1,10 @@
+/// JSON에서 List를 안전하게 추출
+List<dynamic>? _safeList(dynamic value) {
+  if (value == null) return null;
+  if (value is List) return value;
+  return null;
+}
+
 /// 워크스페이스 정보 모델
 class WorkspaceInfo {
   final int deviceId; // Pylon의 기기 ID
@@ -40,11 +47,11 @@ class WorkspaceInfo {
       workspaceId: json['workspaceId'] ?? '',
       name: json['name'] ?? '',
       workingDir: json['workingDir'] ?? '',
-      conversations: (json['conversations'] as List<dynamic>?)
+      conversations: (_safeList(json['conversations']))
               ?.map((c) => ConversationInfo.fromJson(c))
               .toList() ??
           [],
-      tasks: (json['tasks'] as List<dynamic>?)
+      tasks: (_safeList(json['tasks']))
               ?.map((t) => TaskInfo.fromJson(t))
               .toList() ??
           [],
@@ -124,6 +131,7 @@ class WorkspaceInfo {
 class ConversationInfo {
   final String conversationId;
   final String name;
+  final String skillType; // general, planner, worker
   final String? claudeSessionId;
   final String status; // idle, working, waiting, error
   final bool unread;
@@ -132,6 +140,7 @@ class ConversationInfo {
   ConversationInfo({
     required this.conversationId,
     required this.name,
+    this.skillType = 'general',
     this.claudeSessionId,
     this.status = 'idle',
     this.unread = false,
@@ -142,6 +151,7 @@ class ConversationInfo {
     return ConversationInfo(
       conversationId: json['conversationId'] ?? '',
       name: json['name'] ?? '',
+      skillType: json['skillType'] ?? 'general',
       claudeSessionId: json['claudeSessionId'],
       status: json['status'] ?? 'idle',
       unread: json['unread'] ?? false,
@@ -156,9 +166,22 @@ class ConversationInfo {
   bool get hasError => status == 'error';
   bool get canResume => claudeSessionId != null;
 
+  /// 스킬 타입에 해당하는 아이콘
+  String get skillIcon {
+    switch (skillType) {
+      case 'planner':
+        return '📋';
+      case 'worker':
+        return '🔧';
+      default:
+        return '💬';
+    }
+  }
+
   ConversationInfo copyWith({
     String? conversationId,
     String? name,
+    String? skillType,
     String? claudeSessionId,
     String? status,
     bool? unread,
@@ -167,6 +190,7 @@ class ConversationInfo {
     return ConversationInfo(
       conversationId: conversationId ?? this.conversationId,
       name: name ?? this.name,
+      skillType: skillType ?? this.skillType,
       claudeSessionId: claudeSessionId ?? this.claudeSessionId,
       status: status ?? this.status,
       unread: unread ?? this.unread,

@@ -32,9 +32,9 @@ Claude SDK → Pylon → Relay → Client (Mobile/Desktop)
 - IP/MAC 화이트리스트 기반
 - 등록된 기기만 접속 가능
 
-### 4. PC/데스크 선택
-- 통합 목록: 모든 PC의 모든 데스크를 한 목록에서 선택
-- 형식: `{PC이름}/{데스크이름}` (예: `집PC/estelle`, `회사PC/eb`)
+### 4. PC/워크스페이스 선택
+- 통합 목록: 모든 PC의 모든 워크스페이스를 한 목록에서 선택
+- 형식: `{PC이름}/{워크스페이스이름}` (예: `집PC/estelle`, `회사PC/eb`)
 
 ---
 
@@ -46,7 +46,7 @@ Claude SDK → Pylon → Relay → Client (Mobile/Desktop)
 │  - WebSocket 허브                                                │
 │  - IP/MAC 인증                                                   │
 │  - 메시지 라우팅 (Client ↔ Pylon)                                │
-│  - 기기/데스크 목록 관리                                          │
+│  - 기기/워크스페이스 목록 관리                                      │
 └─────────────────────────────────────────────────────────────────┘
           ▲                                      ▲
           │ WSS                                  │ WSS
@@ -54,7 +54,7 @@ Claude SDK → Pylon → Relay → Client (Mobile/Desktop)
 ┌─────────────────────┐                ┌─────────────────────┐
 │   Pylon (집 PC)     │                │   Pylon (회사 PC)   │
 │  - Claude SDK 실행   │                │  - Claude SDK 실행   │
-│  - 데스크 관리       │                │  - 데스크 관리       │
+│  - 워크스페이스 관리  │                │  - 워크스페이스 관리  │
 │  - SDK 입출력 로깅   │                │  - SDK 입출력 로깅   │
 └─────────────────────┘                └─────────────────────┘
           ▲                                      ▲
@@ -121,51 +121,50 @@ interface DeviceId {
 }
 ```
 
-### 3. 데스크 관리
+### 3. 워크스페이스 관리
 
 ```typescript
-// 데스크 목록 요청
-{ type: 'desk_list' }
+// 워크스페이스 목록 요청
+{ type: 'workspace_list' }
 
-// 데스크 목록 응답 (모든 PC의 모든 데스크)
+// 워크스페이스 목록 응답 (모든 PC의 모든 워크스페이스)
 {
-  type: 'desk_list_result',
+  type: 'workspace_list_result',
   payload: {
-    desks: Array<{
+    workspaces: Array<{
       pcId: string;
       pcName: string;
-      deskId: string;
-      deskName: string;
+      workspaceId: string;
+      workspaceName: string;
       workingDir: string;
       status: 'idle' | 'working' | 'permission' | 'offline';
-      isActive: boolean;  // 해당 PC에서 활성화된 데스크인지
+      isActive: boolean;  // 해당 PC에서 활성화된 워크스페이스인지
     }>
   }
 }
 
-// 데스크 전환
+// 워크스페이스 전환
 {
-  type: 'desk_switch',
-  payload: { pcId: string; deskId: string; }
+  type: 'workspace_switch',
+  payload: { pcId: string; workspaceId: string; }
 }
 
-// 데스크 생성
+// 워크스페이스 생성
 {
-  type: 'desk_create',
+  type: 'workspace_create',
   payload: { pcId: string; name: string; workingDir: string; }
 }
 
-// 데스크 삭제
+// 워크스페이스 삭제
 {
-  type: 'desk_delete',
-  payload: { pcId: string; deskId: string; }
+  type: 'workspace_delete',
+  payload: { pcId: string; workspaceId: string; }
 }
 
-// 데스크 이름 변경
+// 워크스페이스 이름 변경
 {
-  type: 'desk_rename',
-  payload: { pcId: string; deskId: string; newName: string; }
-}
+  type: 'workspace_rename',
+  payload: { pcId: string; workspaceId: string; newName: string; }
 ```
 
 ### 4. Claude 제어 (SlackClaudeBot 기능 이식)
@@ -176,7 +175,8 @@ interface DeviceId {
   type: 'claude_send',
   to: { pcId, deviceType: 'pylon' },
   payload: {
-    deskId: string;
+    workspaceId: string;
+    conversationId: string;
     message: string;
   }
 }
@@ -186,7 +186,7 @@ interface DeviceId {
 {
   type: 'claude_event',
   payload: {
-    deskId: string;
+    conversationId: string;
     event: ClaudeSdkEvent;  // 원본 SDK 이벤트
   }
 }
@@ -207,7 +207,7 @@ type ClaudeSdkEvent =
   type: 'claude_permission',
   to: { pcId, deviceType: 'pylon' },
   payload: {
-    deskId: string;
+    conversationId: string;
     toolUseId: string;
     decision: 'allow' | 'deny' | 'allowAll';
   }
@@ -218,7 +218,7 @@ type ClaudeSdkEvent =
   type: 'claude_answer',
   to: { pcId, deviceType: 'pylon' },
   payload: {
-    deskId: string;
+    conversationId: string;
     toolUseId: string;
     answer: string;
   }
@@ -229,7 +229,7 @@ type ClaudeSdkEvent =
   type: 'claude_control',
   to: { pcId, deviceType: 'pylon' },
   payload: {
-    deskId: string;
+    conversationId: string;
     action: 'stop' | 'new_session' | 'clear' | 'compact';
   }
 }
@@ -266,19 +266,19 @@ src/
 - [ ] IP/MAC 화이트리스트 인증
 - [ ] 기기 레지스트리 (연결된 Pylon/Client 목록)
 - [ ] 메시지 라우팅 (특정 기기로 전달)
-- [ ] 데스크 목록 집계 (모든 Pylon에서 수집)
+- [ ] 워크스페이스 목록 집계 (모든 Pylon에서 수집)
 - [ ] 오프라인 기기 감지 및 상태 업데이트
 
 ### 2. estelle-pylon
 
-**역할:** Claude SDK 실행, 데스크 관리, SDK 입출력 로깅
+**역할:** Claude SDK 실행, 워크스페이스 관리, SDK 입출력 로깅
 
 ```
 src/
 ├── index.ts              # 엔트리포인트
 ├── relay-client.ts       # Relay 연결 관리
 ├── claude-manager.ts     # Claude SDK 인스턴스 관리
-├── desk-store.ts         # 데스크 영속 저장 (SlackClaudeBot에서 이식)
+├── workspace-store.ts    # 워크스페이스 영속 저장
 ├── sdk-logger.ts         # SDK 입출력 로깅 (테스트 케이스용)
 └── types.ts              # 타입 정의
 ```
@@ -286,7 +286,7 @@ src/
 **구현 사항:**
 - [x] Relay 연결 (Phase 1 완료)
 - [ ] Claude SDK 통합 (@anthropic-ai/claude-code)
-- [ ] 데스크 관리 (생성/삭제/전환/이름변경)
+- [ ] 워크스페이스 관리 (생성/삭제/전환/이름변경)
 - [ ] SDK 이벤트 → WebSocket 스트리밍
 - [ ] 권한/질문 요청 처리
 - [ ] 세션 제어 (stop, new, clear, compact)
@@ -300,7 +300,7 @@ src/
 interface SdkLog {
   timestamp: number;
   sessionId: string;
-  deskId: string;
+  conversationId: string;
   direction: 'input' | 'output';
   data: any;
 }
@@ -319,14 +319,14 @@ app/src/main/java/com/example/estelle/
 ├── data/
 │   ├── WebSocketClient.kt      # Relay 연결
 │   ├── MessageRepository.kt    # 메시지 상태 관리
-│   └── DeskRepository.kt       # 데스크 상태 관리
+│   └── WorkspaceRepository.kt  # 워크스페이스 상태 관리
 ├── ui/
 │   ├── chat/
 │   │   ├── ChatScreen.kt       # 메인 채팅 UI
 │   │   └── MessageRenderer.kt  # Claude 이벤트 렌더링
-│   ├── desk/
-│   │   ├── DeskListScreen.kt   # 데스크 선택 (통합 목록)
-│   │   └── DeskItem.kt         # 데스크 아이템 컴포넌트
+│   ├── workspace/
+│   │   ├── WorkspaceListScreen.kt   # 워크스페이스 선택 (통합 목록)
+│   │   └── WorkspaceItem.kt         # 워크스페이스 아이템 컴포넌트
 │   └── components/
 │       ├── ToolCallView.kt     # 툴 호출 표시
 │       ├── PermissionDialog.kt # 권한 요청 다이얼로그
@@ -343,7 +343,7 @@ app/src/main/java/com/example/estelle/
   - permission_request → 권한 다이얼로그
   - ask_question → 선택지 UI
   - state → 상태 표시
-- [ ] 데스크 선택 UI (통합 목록)
+- [ ] 워크스페이스 선택 UI (통합 목록)
 - [ ] 메시지 입력 및 전송
 - [ ] 세션 제어 버튼 (stop, new, clear, compact)
 - [ ] 권한 모드 설정
@@ -354,7 +354,7 @@ app/src/main/java/com/example/estelle/
 
 Phase 2에서는 최소 구현:
 - Pylon 연결 상태 표시
-- 현재 데스크 정보
+- 현재 워크스페이스 정보
 - 간단한 메시지 전송 (급할 때 로컬에서)
 
 ---
@@ -370,20 +370,20 @@ Phase 2에서는 최소 구현:
 - [ ] IP/MAC 화이트리스트 구현
 - [ ] 기기 레지스트리 구현
 - [ ] 메시지 라우팅 구현
-- [ ] 데스크 목록 집계 API
+- [ ] 워크스페이스 목록 집계 API
 
 ### Step 3: Pylon - Claude SDK 통합
 - [ ] Claude SDK 설치 및 설정
 - [ ] SDK 이벤트 스트리밍 구현
 - [ ] **SDK 로거 구현** (테스트 케이스용)
-- [ ] desk-store 이식 (SlackClaudeBot)
+- [ ] workspace-store 구현
 - [ ] 세션 제어 구현
 
 ### Step 4: Mobile - 렌더러 개발 (TDD)
 - [ ] SDK 로그에서 테스트 케이스 생성
 - [ ] 이벤트 파서 구현 + 테스트
 - [ ] 렌더러 컴포넌트 구현 + 테스트
-- [ ] 데스크 선택 UI
+- [ ] 워크스페이스 선택 UI
 - [ ] 전체 통합
 
 ### Step 5: 통합 테스트
@@ -439,7 +439,7 @@ Phase 2에서는 최소 구현:
 ## 참고: SlackClaudeBot에서 이식할 것
 
 ### 이식 O (핵심 로직)
-- `desk-store.ts` → Pylon의 데스크 관리
+- `workspace-store.ts` → Pylon의 워크스페이스 관리
 - `claude-sdk.ts` 사용 패턴 → Pylon의 SDK 통합
 - 권한 모드 관리 로직
 - 세션 제어 로직 (stop, new, clear, compact)
@@ -455,8 +455,8 @@ Phase 2에서는 최소 구현:
 ## 완료 기준
 
 Phase 2 완료 조건:
-1. ✅ 모바일에서 두 PC의 데스크 목록 확인 가능
-2. ✅ 모바일에서 데스크 선택 후 Claude에게 메시지 전송 가능
+1. ✅ 모바일에서 두 PC의 워크스페이스 목록 확인 가능
+2. ✅ 모바일에서 워크스페이스 선택 후 Claude에게 메시지 전송 가능
 3. ✅ Claude 응답이 실시간으로 모바일에 스트리밍
 4. ✅ 권한 요청 시 모바일에서 승인/거부 가능
 5. ✅ 세션 제어 (stop, new, clear) 동작

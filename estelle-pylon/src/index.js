@@ -1,6 +1,6 @@
 /**
  * Estelle Pylon - v1
- * Claude SDK 실행, 데스크 관리, Relay 통신
+ * Claude SDK 실행, 워크스페이스 관리, Relay 통신
  */
 
 import 'dotenv/config';
@@ -11,7 +11,6 @@ import https from 'https';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 
-import deskStore from './deskStore.js';
 import workspaceStore from './workspaceStore.js';
 import folderManager from './folderManager.js';
 import taskManager from './taskManager.js';
@@ -46,8 +45,8 @@ class Pylon {
     this.localServer = null;
     this.claudeManager = null;
     this.fileSimulator = null;
-    // 데스크별 시청자 추적: Map<deskId, Set<clientDeviceId>>
-    this.deskViewers = new Map();
+    // 세션별 시청자 추적: Map<sessionId, Set<clientDeviceId>>
+    this.sessionViewers = new Map();
     // Claude 누적 사용량
     this.claudeUsage = {
       totalCostUsd: 0,
@@ -92,11 +91,10 @@ class Pylon {
 
     await this.checkAndUpdate();
 
-    deskStore.initialize();
     workspaceStore.initialize();
 
-    this.claudeManager = new ClaudeManager((deskId, event) => {
-      this.sendClaudeEvent(deskId, event);
+    this.claudeManager = new ClaudeManager((sessionId, event) => {
+      this.sendClaudeEvent(sessionId, event);
     });
 
     this.localServer = new LocalServer(LOCAL_PORT);
@@ -148,7 +146,7 @@ class Pylon {
           deviceId: this.deviceId,
           deviceInfo: this.deviceInfo,
           authenticated: this.authenticated,
-          desks: deskStore.getAllDesks()
+          workspaces: workspaceStore.getAllWorkspaces()
         }));
         return;
       }
@@ -296,7 +294,7 @@ class Pylon {
         this.authenticated = true;
         this.deviceInfo = payload.device;
         this.log(`Authenticated as ${this.deviceInfo?.name || this.deviceId}`);
-        this.broadcastDeskList();
+        this.broadcastWorkspaceList();
       } else {
         this.log(`Auth failed: ${payload?.error}`);
       }
@@ -313,7 +311,7 @@ class Pylon {
     if (type === 'client_disconnect') {
       const clientId = payload?.deviceId;
       if (clientId) {
-        this.unregisterDeskViewer(clientId);
+        this.unregisterSessionViewer(clientId);
       }
       return;
     }
@@ -323,91 +321,12 @@ class Pylon {
       return;
     }
 
-    // ===== 데스크 관련 =====
-
-    if (type === 'desk_list') {
-      // from 정보가 있으면 요청자에게 직접 응답, 없으면 브로드캐스트
-      if (from?.deviceId) {
-        this.sendDeskListTo(from);
-      } else {
-        this.broadcastDeskList();
-      }
-      return;
-    }
-
-    if (type === 'desk_switch') {
-      const { deskId } = payload || {};
-      if (deskId && deskStore.setActiveDesk(deskId)) {
-        this.broadcastDeskList();
-      }
-      return;
-    }
-
-    if (type === 'desk_create') {
-      const { name, workingDir } = payload || {};
-      if (name) {
-        const newDesk = deskStore.createDesk(name, workingDir);
-        this.broadcastDeskList();
-        // 생성 요청자에게 새 데스크 정보 전송
-        this.sendToClient(clientId, {
-          type: 'desk_created',
-          payload: {
-            deviceId: this.deviceId,
-            desk: newDesk,
-          },
-        });
-      }
-      return;
-    }
-
-    if (type === 'desk_delete') {
-      const { deskId } = payload || {};
-      if (deskId && deskStore.deleteDesk(deskId)) {
-        this.claudeManager.stop(deskId);
-        this.broadcastDeskList();
-      }
-      return;
-    }
-
-    if (type === 'desk_rename') {
-      const { deskId, newName } = payload || {};
-      if (deskId && newName && deskStore.renameDesk(deskId, newName)) {
-        this.broadcastDeskList();
-      }
-      return;
-    }
-
-    if (type === 'desk_reorder') {
-      const { deskIds } = payload || {};
-      if (Array.isArray(deskIds) && deskStore.reorderDesks(deskIds)) {
-        this.broadcastDeskList();
-      }
-      return;
-    }
-
-    if (type === 'desk_sync') {
-      const { deskId } = payload || {};
-      if (deskId) {
-        this.sendDeskSync(deskId, from);
-      }
-      return;
-    }
-
-    if (type === 'desk_select') {
-      const { deskId } = payload || {};
-      const clientId = from?.deviceId;
-      if (deskId && clientId) {
-        this.registerDeskViewer(clientId, deskId);
-      }
-      return;
-    }
-
     // 히스토리 페이징 요청
     if (type === 'history_request') {
-      const { deskId, limit = 50, offset = 0 } = payload || {};
-      if (deskId) {
-        const totalCount = messageStore.getCount(deskId);
-        const messages = messageStore.load(deskId, { limit, offset });
+      const { workspaceId, conversationId, limit = 50, offset = 0 } = payload || {};
+      if (conversationId) {
+        const totalCount = messageStore.getCount(conversationId);
+        const messages = messageStore.load(conversationId, { limit, offset });
         const hasMore = offset + messages.length < totalCount;
 
         this.send({
@@ -415,7 +334,8 @@ class Pylon {
           to: from?.deviceId,
           payload: {
             deviceId: this.deviceId,
-            deskId,
+            workspaceId,
+            conversationId,
             messages,
             offset,
             totalCount,
@@ -501,9 +421,12 @@ class Pylon {
     }
 
     if (type === 'conversation_create') {
-      const { workspaceId, name } = payload || {};
+      const { workspaceId, name, skillType } = payload || {};
       if (workspaceId) {
-        const conversation = workspaceStore.createConversation(workspaceId, name);
+        const actualSkillType = skillType || 'general';
+        const conversation = workspaceStore.createConversation(workspaceId, name, actualSkillType);
+
+        // 결과 전송
         this.send({
           type: 'conversation_create_result',
           to: from?.deviceId,
@@ -514,8 +437,33 @@ class Pylon {
             conversation
           }
         });
+
         if (conversation) {
           this.broadcastWorkspaceList();
+
+          // 세션 뷰어 등록
+          if (from?.deviceId) {
+            this.registerSessionViewer(from.deviceId, conversation.conversationId);
+          }
+
+          // 페르소나 프롬프트 자동 전송 (UI에는 안 보임)
+          const workspace = workspaceStore.getWorkspace(workspaceId);
+          if (workspace) {
+            const conversationId = conversation.conversationId;
+            const workingDir = workspace.workingDir;
+            const skillType = conversation.skillType || 'general';
+
+            // 페르소나 + 인사 프롬프트 생성
+            const personaContent = this.loadPersona(skillType);
+            const greeting = this.getInitialGreeting(skillType);
+            let prompt = greeting;
+            if (personaContent) {
+              prompt = `<persona>\n${personaContent}\n</persona>\n\n${greeting}`;
+            }
+
+            // Claude에게만 전송 (UI에 사용자 메시지로 표시 안 함)
+            this.claudeManager.sendMessage(conversationId, prompt, { workingDir });
+          }
         }
       }
       return;
@@ -532,10 +480,48 @@ class Pylon {
       return;
     }
 
+    if (type === 'conversation_rename') {
+      const { workspaceId, conversationId, newName } = payload || {};
+      if (workspaceId && conversationId && newName) {
+        const success = workspaceStore.renameConversation(workspaceId, conversationId, newName);
+        if (success) {
+          this.broadcastWorkspaceList();
+        }
+      }
+      return;
+    }
+
     if (type === 'conversation_select') {
-      const { conversationId } = payload || {};
+      const { workspaceId, conversationId } = payload || {};
       if (conversationId) {
         workspaceStore.setActiveConversation(conversationId);
+        // 클라이언트를 해당 세션의 시청자로 등록
+        if (from?.deviceId) {
+          this.registerSessionViewer(from.deviceId, conversationId);
+
+          // 활성 세션 정보
+          const hasActiveSession = this.claudeManager.hasActiveSession(conversationId);
+          const workStartTime = this.claudeManager.getSessionStartTime(conversationId);
+
+          // 메시지 히스토리 전송
+          const totalCount = messageStore.getCount(conversationId);
+          const messages = messageStore.load(conversationId);
+          this.send({
+            type: 'history_result',
+            to: from.deviceId,
+            payload: {
+              deviceId: this.deviceId,
+              workspaceId,
+              conversationId,
+              messages,
+              offset: 0,
+              totalCount,
+              hasMore: false,
+              hasActiveSession,
+              workStartTime
+            }
+          });
+        }
       }
       return;
     }
@@ -682,17 +668,8 @@ class Pylon {
             // 워커 대화를 활성화
             workspaceStore.setActiveConversation(conversation.conversationId);
 
-            // Claude에게 메시지 전송 (기존 데스크 시스템 사용)
-            // 워커 대화 ID를 deskId로 사용
-            const workerDeskId = `worker-${workspaceId}`;
-
-            // deskStore에 워커용 임시 데스크 생성
-            if (!deskStore.getDesk(workerDeskId)) {
-              deskStore.createWorkerDesk(workerDeskId, workspace.name, workingDir);
-            }
-
-            // Claude 메시지 전송
-            this.claudeManager.sendMessage(workerDeskId, prompt);
+            // Claude 메시지 전송 (conversationId를 sessionId로 사용)
+            this.claudeManager.sendMessage(conversation.conversationId, prompt, { workingDir });
 
             return {
               process: null, // ClaudeManager가 내부적으로 관리
@@ -742,16 +719,27 @@ class Pylon {
     // ===== Claude 관련 =====
 
     if (type === 'claude_send') {
-      const { deskId, message: userMessage } = payload || {};
-      if (deskId && userMessage) {
+      const { workspaceId, conversationId, message: userMessage } = payload || {};
+
+      if (conversationId && userMessage) {
+        // workingDir 및 conversation 정보 가져오기
+        let workingDir = null;
+        let conversation = null;
+        if (workspaceId) {
+          const workspace = workspaceStore.getWorkspace(workspaceId);
+          workingDir = workspace?.workingDir;
+          conversation = workspaceStore.getConversation(workspaceId, conversationId);
+        }
+
         // 사용자 메시지 저장
-        messageStore.addUserMessage(deskId, userMessage);
+        messageStore.addUserMessage(conversationId, userMessage);
 
         // 사용자 메시지 브로드캐스트 (다른 클라이언트들에게 알림)
         const userMessageEvent = {
           type: 'claude_event',
           payload: {
-            deskId,
+            workspaceId,
+            conversationId,
             event: {
               type: 'userMessage',
               content: userMessage,
@@ -762,31 +750,42 @@ class Pylon {
         this.send({ ...userMessageEvent, broadcast: 'clients' });
         this.localServer?.broadcast(userMessageEvent);
 
-        this.claudeManager.sendMessage(deskId, userMessage);
+        // 첫 메시지인 경우 페르소나 지침 주입
+        let promptToSend = userMessage;
+        const claudeSessionId = conversation?.claudeSessionId || null;
+
+        if (conversation && !claudeSessionId) {
+          const personaContent = this.loadPersona(conversation.skillType || 'general');
+          if (personaContent) {
+            promptToSend = `<persona>\n${personaContent}\n</persona>\n\n${userMessage}`;
+          }
+        }
+
+        this.claudeManager.sendMessage(conversationId, promptToSend, { workingDir, claudeSessionId });
       }
       return;
     }
 
     if (type === 'claude_permission') {
-      const { deskId, toolUseId, decision } = payload || {};
-      if (deskId && toolUseId && decision) {
-        this.claudeManager.respondPermission(deskId, toolUseId, decision);
+      const { workspaceId, conversationId, toolUseId, decision } = payload || {};
+      if (conversationId && toolUseId && decision) {
+        this.claudeManager.respondPermission(conversationId, toolUseId, decision);
       }
       return;
     }
 
     if (type === 'claude_answer') {
-      const { deskId, toolUseId, answer } = payload || {};
-      if (deskId && toolUseId) {
-        this.claudeManager.respondQuestion(deskId, toolUseId, answer);
+      const { workspaceId, conversationId, toolUseId, answer } = payload || {};
+      if (conversationId && toolUseId) {
+        this.claudeManager.respondQuestion(conversationId, toolUseId, answer);
       }
       return;
     }
 
     if (type === 'claude_control') {
-      const { deskId, action } = payload || {};
-      if (deskId && action) {
-        this.handleClaudeControl(deskId, action);
+      const { workspaceId, conversationId, action } = payload || {};
+      if (conversationId && action) {
+        this.handleClaudeControl(conversationId, action);
       }
       return;
     }
@@ -794,7 +793,7 @@ class Pylon {
     if (type === 'claude_set_permission_mode') {
       const { mode } = payload || {};
       if (mode) {
-        deskStore.setPermissionMode(mode);
+        ClaudeManager.setPermissionMode(mode);
       }
       return;
     }
@@ -855,24 +854,39 @@ class Pylon {
       return;
     }
 
+    // 버그 리포트
+    if (type === 'bug_report') {
+      this.handleBugReport(payload);
+      return;
+    }
+
     this.localServer?.broadcast({ type: 'from_relay', data: message });
   }
 
-  handleClaudeControl(deskId, action) {
+  handleBugReport(payload) {
+    const { message, timestamp } = payload || {};
+    if (!message) return;
+
+    const bugReportFile = path.join(__dirname, '..', 'bug-reports.txt');
+    const entry = `[${timestamp || new Date().toISOString()}]\n${message}\n-----\n`;
+
+    try {
+      fs.appendFileSync(bugReportFile, entry, 'utf-8');
+      this.log(`Bug report saved`);
+    } catch (err) {
+      this.log(`Failed to save bug report: ${err.message}`);
+    }
+  }
+
+  handleClaudeControl(sessionId, action) {
     switch (action) {
       case 'stop':
-        this.claudeManager.stop(deskId);
+        this.claudeManager.stop(sessionId);
         break;
       case 'new_session':
       case 'clear':
-        this.claudeManager.newSession(deskId);
-        messageStore.clear(deskId);
-        this.broadcastDeskList();
-        break;
-      case 'resume':
-        // 세션 재개 - 빈 메시지로 컨텍스트 복구
-        this.claudeManager.resumeSession(deskId);
-        this.broadcastDeskList();
+        this.claudeManager.newSession(sessionId);
+        messageStore.clear(sessionId);
         break;
       case 'compact':
         this.log(`Compact not implemented yet`);
@@ -880,166 +894,107 @@ class Pylon {
     }
   }
 
-  // ============ 데스크 시청자 관리 ============
+  // ============ 세션 시청자 관리 ============
 
   /**
-   * 클라이언트를 특정 데스크의 시청자로 등록
-   * 한 클라이언트는 한 데스크만 시청 가능
+   * 클라이언트를 특정 세션의 시청자로 등록
+   * 한 클라이언트는 한 세션만 시청 가능
    */
-  registerDeskViewer(clientId, deskId) {
-    // 기존 시청 데스크에서 제거
-    for (const [existingDeskId, viewers] of this.deskViewers) {
+  registerSessionViewer(clientId, sessionId) {
+    // 기존 시청 세션에서 제거
+    for (const [existingSessionId, viewers] of this.sessionViewers) {
       if (viewers.has(clientId)) {
         viewers.delete(clientId);
         if (viewers.size === 0) {
-          this.deskViewers.delete(existingDeskId);
+          this.sessionViewers.delete(existingSessionId);
           // 시청자가 없으면 메시지 캐시 해제
-          messageStore.unloadCache(existingDeskId);
-          this.log(`Unloaded message cache for desk ${existingDeskId} (no viewers)`);
+          messageStore.unloadCache(existingSessionId);
+          this.log(`Unloaded message cache for session ${existingSessionId} (no viewers)`);
         }
         break;
       }
     }
 
-    // 새 데스크에 등록
-    if (!this.deskViewers.has(deskId)) {
-      this.deskViewers.set(deskId, new Set());
+    // 새 세션에 등록
+    if (!this.sessionViewers.has(sessionId)) {
+      this.sessionViewers.set(sessionId, new Set());
     }
-    this.deskViewers.get(deskId).add(clientId);
-    this.log(`Client ${clientId} now viewing desk ${deskId}`);
+    this.sessionViewers.get(sessionId).add(clientId);
+    this.log(`Client ${clientId} now viewing session ${sessionId}`);
+  }
+
+  /**
+   * 스킬 타입에 해당하는 프롬프트 반환
+   */
+  loadPersona(skillType) {
+    const personaFile = path.join(__dirname, '..', 'persona', `${skillType}.md`);
+    try {
+      if (fs.existsSync(personaFile)) {
+        return fs.readFileSync(personaFile, 'utf-8');
+      }
+    } catch (err) {
+      console.error(`[Pylon] Failed to load persona: ${skillType}`, err.message);
+    }
+    return null;
+  }
+
+  getInitialGreeting(skillType) {
+    switch (skillType) {
+      case 'planner':
+        return '작업 계획을 논의하고 싶어.';
+      case 'worker':
+        return '작업을 시작하자.';
+      case 'general':
+      default:
+        return '안녕!';
+    }
   }
 
   /**
    * 클라이언트 연결 해제 시 모든 시청 정보 제거
    */
-  unregisterDeskViewer(clientId) {
-    for (const [deskId, viewers] of this.deskViewers) {
+  unregisterSessionViewer(clientId) {
+    for (const [sessionId, viewers] of this.sessionViewers) {
       if (viewers.has(clientId)) {
         viewers.delete(clientId);
         if (viewers.size === 0) {
-          this.deskViewers.delete(deskId);
+          this.sessionViewers.delete(sessionId);
           // 시청자가 없으면 메시지 캐시 해제
-          messageStore.unloadCache(deskId);
-          this.log(`Unloaded message cache for desk ${deskId} (no viewers)`);
+          messageStore.unloadCache(sessionId);
+          this.log(`Unloaded message cache for session ${sessionId} (no viewers)`);
         }
-        this.log(`Client ${clientId} removed from desk ${deskId} viewers`);
+        this.log(`Client ${clientId} removed from session ${sessionId} viewers`);
         break;
       }
     }
   }
 
   /**
-   * 특정 데스크를 시청 중인 클라이언트 목록 반환
+   * 특정 세션을 시청 중인 클라이언트 목록 반환
    */
-  getDeskViewers(deskId) {
-    return this.deskViewers.get(deskId) || new Set();
+  getSessionViewers(sessionId) {
+    return this.sessionViewers.get(sessionId) || new Set();
   }
 
-  // ============ 데스크 정보 전송 ============
+  // ============ 로컬 서버 연결 ============
 
   onDesktopConnect(ws) {
-    const desks = deskStore.getAllDesks();
+    // 워크스페이스 목록 전송
+    const workspaces = workspaceStore.getAllWorkspaces();
+    const activeState = workspaceStore.getActiveState();
 
-    // 각 데스크에 세션 상태 추가
-    const desksWithSessionInfo = desks.map(desk => ({
-      ...desk,
-      hasActiveSession: this.claudeManager.hasActiveSession(desk.deskId),
-      canResume: !!desk.claudeSessionId
-    }));
-
-    // 데스크 목록 전송
-    const deskListMsg = {
-      type: 'desk_list_result',
+    const workspaceListMsg = {
+      type: 'workspace_list_result',
       payload: {
         deviceId: this.deviceId,
         deviceInfo: this.deviceInfo,
-        desks: desksWithSessionInfo
+        workspaces,
+        activeWorkspaceId: activeState.activeWorkspaceId,
+        activeConversationId: activeState.activeConversationId
       }
     };
-    ws.send(JSON.stringify(deskListMsg));
-    packetLogger.logSend('desktop', deskListMsg);
-
-    // 각 데스크의 메시지 히스토리 전송
-    for (const desk of desks) {
-      const messages = messageStore.load(desk.deskId);
-      if (messages.length > 0) {
-        const historyMsg = {
-          type: 'message_history',
-          payload: {
-            deviceId: this.deviceId,
-            deskId: desk.deskId,
-            messages
-          }
-        };
-        ws.send(JSON.stringify(historyMsg));
-        packetLogger.logSend('desktop', historyMsg);
-      }
-
-      // pending 이벤트 전송 (질문/권한 요청)
-      const pendingEvent = this.claudeManager.getPendingEvent(desk.deskId);
-      if (pendingEvent) {
-        const eventMsg = {
-          type: 'claude_event',
-          payload: {
-            deskId: desk.deskId,
-            event: pendingEvent
-          }
-        };
-        ws.send(JSON.stringify(eventMsg));
-        packetLogger.logSend('desktop', eventMsg);
-      }
-    }
-  }
-
-  // 특정 클라이언트에게 데스크 목록 전송
-  sendDeskListTo(target) {
-    const desks = deskStore.getAllDesks();
-
-    const desksWithSessionInfo = desks.map(desk => ({
-      ...desk,
-      hasActiveSession: this.claudeManager.hasActiveSession(desk.deskId),
-      canResume: !!desk.claudeSessionId
-    }));
-
-    const payload = {
-      deviceId: this.deviceId,
-      deviceInfo: this.deviceInfo,
-      desks: desksWithSessionInfo
-    };
-
-    this.send({
-      type: 'desk_list_result',
-      payload,
-      to: { deviceId: target.deviceId, deviceType: target.deviceType }
-    });
-  }
-
-  broadcastDeskList() {
-    const desks = deskStore.getAllDesks();
-
-    // 각 데스크에 세션 상태 추가
-    const desksWithSessionInfo = desks.map(desk => ({
-      ...desk,
-      hasActiveSession: this.claudeManager.hasActiveSession(desk.deskId),
-      canResume: !!desk.claudeSessionId
-    }));
-
-    const payload = {
-      deviceId: this.deviceId,
-      deviceInfo: this.deviceInfo,
-      desks: desksWithSessionInfo
-    };
-
-    this.send({
-      type: 'desk_list_result',
-      payload,
-      broadcast: 'clients'
-    });
-
-    this.localServer?.broadcast({
-      type: 'desk_list_result',
-      payload
-    });
+    ws.send(JSON.stringify(workspaceListMsg));
+    packetLogger.logSend('desktop', workspaceListMsg);
   }
 
   // ===== 워크스페이스 브로드캐스트 =====
@@ -1131,58 +1086,20 @@ class Pylon {
     });
   }
 
-  /**
-   * 특정 데스크의 메시지 히스토리 전송 (sync 요청 응답)
-   */
-  sendDeskSync(deskId, target) {
-    const desk = deskStore.getDesk(deskId);
-    const totalCount = messageStore.getCount(deskId);
-
-    // 메시지는 history_request로 페이징해서 받도록 함
-    // 여기서는 상태 정보만 전송
-    const syncPayload = {
-      deviceId: this.deviceId,
-      deskId,
-      messages: [],  // 빈 배열 - 앱에서 history_request로 받아야 함
-      totalCount,    // 전체 메시지 수
-      status: desk?.status || 'idle',
-      hasActiveSession: this.claudeManager.hasActiveSession(deskId),
-      canResume: !!desk?.claudeSessionId
-    };
-
-    // pending 이벤트도 포함
-    const pendingEvent = this.claudeManager.getPendingEvent(deskId);
-    if (pendingEvent) {
-      syncPayload.pendingEvent = pendingEvent;
-    }
-
-    if (target?.deviceId) {
-      // 요청자에게만 응답
-      this.send({
-        type: 'desk_sync_result',
-        payload: syncPayload,
-        to: { deviceId: target.deviceId, deviceType: target.deviceType }
-      });
-    } else {
-      // 브로드캐스트
-      this.send({
-        type: 'desk_sync_result',
-        payload: syncPayload,
-        broadcast: 'clients'
-      });
-    }
-
-    this.localServer?.broadcast({
-      type: 'desk_sync_result',
-      payload: syncPayload
-    });
-  }
-
   // ============ Claude 이벤트 전송 ============
 
-  sendClaudeEvent(deskId, event) {
+  sendClaudeEvent(sessionId, event) {
     // 이벤트 타입별 메시지 저장
-    this.saveEventToHistory(deskId, event);
+    this.saveEventToHistory(sessionId, event);
+
+    // init 이벤트에서 claudeSessionId 저장 (resume용)
+    if (event.type === 'init' && event.session_id) {
+      const workspaceId = workspaceStore.findWorkspaceByConversation(sessionId);
+      if (workspaceId) {
+        workspaceStore.updateClaudeSessionId(workspaceId, sessionId, event.session_id);
+        this.log(`Saved claudeSessionId: ${event.session_id.substring(0, 8)}... for ${sessionId}`);
+      }
+    }
 
     // result 이벤트에서 사용량 누적
     if (event.type === 'result') {
@@ -1191,11 +1108,11 @@ class Pylon {
 
     const message = {
       type: 'claude_event',
-      payload: { deskId, event }
+      payload: { conversationId: sessionId, event }
     };
 
-    // 해당 데스크를 시청 중인 클라이언트에게만 전송
-    const viewers = this.getDeskViewers(deskId);
+    // 해당 세션을 시청 중인 클라이언트에게만 전송
+    const viewers = this.getSessionViewers(sessionId);
     if (viewers.size > 0) {
       // 배열로 한 번에 전송
       this.send({
@@ -1209,38 +1126,40 @@ class Pylon {
 
     // 상태 변경은 모든 클라이언트에게 브로드캐스트 (사이드바 표시용)
     if (event.type === 'state') {
-      const desk = deskStore.getDesk(deskId);
-      if (desk) {
-        this.send({
-          type: 'desk_status',
-          payload: {
-            deviceId: this.deviceId,
-            deskId: desk.deskId,
-            status: desk.status,
-            isActive: desk.isActive
-          },
-          broadcast: 'clients'
-        });
+      // workspaceStore에도 상태 업데이트 (재접속 시 반영)
+      const workspaceId = workspaceStore.findWorkspaceByConversation(sessionId);
+      if (workspaceId) {
+        workspaceStore.updateConversationStatus(workspaceId, sessionId, event.state);
       }
+
+      this.send({
+        type: 'conversation_status',
+        payload: {
+          deviceId: this.deviceId,
+          conversationId: sessionId,
+          status: event.state
+        },
+        broadcast: 'clients'
+      });
     }
   }
 
   /**
    * 이벤트를 메시지 히스토리에 저장
    */
-  saveEventToHistory(deskId, event) {
+  saveEventToHistory(sessionId, event) {
     switch (event.type) {
       case 'textComplete':
-        messageStore.addAssistantText(deskId, event.text);
+        messageStore.addAssistantText(sessionId, event.text);
         break;
 
       case 'toolInfo':
-        messageStore.addToolStart(deskId, event.toolName, event.input);
+        messageStore.addToolStart(sessionId, event.toolName, event.input);
         break;
 
       case 'toolComplete':
         messageStore.updateToolComplete(
-          deskId,
+          sessionId,
           event.toolName,
           event.success,
           event.result,
@@ -1249,11 +1168,11 @@ class Pylon {
         break;
 
       case 'error':
-        messageStore.addError(deskId, event.error);
+        messageStore.addError(sessionId, event.error);
         break;
 
       case 'result':
-        messageStore.addResult(deskId, {
+        messageStore.addResult(sessionId, {
           duration_ms: event.duration_ms,
           total_cost_usd: event.total_cost_usd,
           num_turns: event.num_turns,

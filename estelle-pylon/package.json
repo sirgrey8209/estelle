@@ -6,11 +6,11 @@
   "main": "src/index.js",
   "bin": {
     "estelle-pylon": "src/index.js",
-    "estelle-pylon-mcp": "src/mcp.js"
+    "estelle-mcp": "src/mcp/index.js"
   },
   "scripts": {
     "start": "node src/index.js",
-    "mcp": "node src/mcp.js",
+    "mcp": "node src/mcp/index.js",
     "dev": "node src/index.js"
   },
   "keywords": [],

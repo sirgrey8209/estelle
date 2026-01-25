@@ -37,7 +37,7 @@ Estelle은 여러 PC와 모바일 기기에서 Claude Code를 원격으로 제�
    - `to`, `broadcast` 필드만 보고 라우팅
 
 3. **Pylon이 Single Source of Truth**
-   - 채팅 메시지, 데스크 상태 등 모든 데이터는 Pylon이 관리
+   - 채팅 메시지, 워크스페이스 상태 등 모든 데이터는 Pylon이 관리
    - 클라이언트(Desktop/Mobile)는 Pylon에서 오는 이벤트를 그대로 표시
    - 메시지 전송 시: 클라이언트가 직접 UI에 추가하지 않고, Pylon의 `userMessage` 이벤트를 기다림
    - 이유: 여러 창(Desktop 2개 등)에서 동일한 상태를 보장
@@ -74,7 +74,7 @@ Estelle은 여러 PC와 모바일 기기에서 Claude Code를 원격으로 제�
 **기능**:
 - Relay 연결 유지
 - Claude SDK 실행 및 관리
-- 데스크 관리
+- 워크스페이스 관리
 
 **메시지 처리**:
 - Relay로부터 받은 메시지 중 자신에게 온 것만 처리
@@ -99,14 +99,14 @@ Estelle은 여러 PC와 모바일 기기에서 Claude Code를 원격으로 제�
 - 동적 deviceId 사용 (100+)
 
 **기능**:
-- 모든 Pylon의 데스크 목록 표시 (집/회사 등)
+- 모든 Pylon의 워크스페이스 목록 표시 (집/회사 등)
 - Claude 메시지 송수신
 - 권한 요청 응답
-- 데스크 생성/삭제/이름 변경
+- 워크스페이스 생성/삭제/이름 변경
 
 **반응형 UI**:
 - Desktop (>=600px): 사이드바(260px) + 채팅 영역
-- Mobile (<600px): PageView 스와이프 (데스크 목록 ↔ 채팅)
+- Mobile (<600px): PageView 스와이프 (워크스페이스 목록 ↔ 채팅)
 
 ---
 
@@ -147,28 +147,28 @@ deviceId = 100 + random(0-899)
 |------|------|------|
 | `auth` | → Relay | 인증 요청 |
 | `auth_result` | ← Relay | 인증 결과 |
-| `desk_list` | → Pylon | 데스크 목록 요청 |
-| `desk_list_result` | ← Pylon | 데스크 목록 |
+| `workspace_list` | → Pylon | 워크스페이스 목록 요청 |
+| `workspace_list_result` | ← Pylon | 워크스페이스 목록 |
 | `claude_send` | → Pylon | Claude 메시지 전송 |
 | `claude_event` | ← Pylon | Claude 이벤트 (텍스트, 툴 등) |
 | `claude_permission` | → Pylon | 권한 응답 |
 | `claude_control` | → Pylon | 제어 (stop, new_session) |
 
-### 데스크 목록 조회 플로우
+### 워크스페이스 목록 조회 플로우
 
 ```
 1. Desktop/Mobile 인증 성공 시:
-   → { type: 'desk_list', broadcast: 'pylons' }
+   → { type: 'workspace_list', broadcast: 'pylons' }
 
 2. Relay가 모든 Pylon에 브로드캐스트:
-   → 각 Pylon에게 { type: 'desk_list', from: { deviceId: 100, ... } }
+   → 각 Pylon에게 { type: 'workspace_list', from: { deviceId: 100, ... } }
 
 3. 각 Pylon이 응답:
-   → { type: 'desk_list_result', to: { deviceId: 100, deviceType: 'desktop' }, payload: { deviceId, deviceInfo, desks } }
+   → { type: 'workspace_list_result', to: { deviceId: 100, deviceType: 'desktop' }, payload: { deviceId, deviceInfo, workspaces } }
    또는 broadcast: 'clients'로 모든 클라이언트에 브로드캐스트
 
-4. Desktop/Mobile이 desk_list_result 수신:
-   → deviceId별로 Map에 저장하여 여러 Pylon 데스크 표시
+4. Desktop/Mobile이 workspace_list_result 수신:
+   → deviceId별로 Map에 저장하여 여러 Pylon 워크스페이스 표시
 ```
 
 ---
@@ -220,7 +220,7 @@ estelle/
 │       ├── index.js
 │       ├── localServer.js
 │       ├── claudeManager.js
-│       └── deskStore.js
+│       └── workspaceStore.js
 ├── estelle-app/         # 통합 클라이언트 (Flutter)
 │   └── lib/
 │       ├── main.dart

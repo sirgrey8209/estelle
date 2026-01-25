@@ -1,14 +1,9 @@
 {
   "mcpServers": {
-    "estelle-pylon": {
+    "estelle-deploy": {
       "command": "node",
       "args": ["src/mcp.js"],
-      "cwd": "C:\\WorkSpace\\estelle\\estelle-pylon",
-      "env": {
-        "RELAY_URL": "ws://localhost:8080",
-        "LOCAL_PORT": "9000",
-        "DEVICE_ID": "home-pc"
-      }
+      "cwd": "C:\\WorkSpace\\estelle\\estelle-pylon"
     }
   }
 }

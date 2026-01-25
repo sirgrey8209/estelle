@@ -5,7 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../core/constants/colors.dart';
 import '../../../core/constants/build_info.dart';
 import '../../../state/providers/settings_provider.dart';
-import '../../../state/providers/desk_provider.dart';
+import '../../../state/providers/workspace_provider.dart';
 
 /// 앱 업데이트 섹션
 class AppUpdateSection extends ConsumerStatefulWidget {
@@ -28,7 +28,7 @@ class _AppUpdateSectionState extends ConsumerState<AppUpdateSection> {
   @override
   Widget build(BuildContext context) {
     final versionInfo = ref.watch(deployVersionProvider);
-    final pylons = ref.watch(pylonListProvider);
+    final pylons = ref.watch(pylonListWorkspacesProvider);
 
     // 현재 플랫폼 확인 (웹 안전)
     final isAndroid = !kIsWeb && defaultTargetPlatform == TargetPlatform.android;

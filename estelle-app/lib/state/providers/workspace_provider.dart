@@ -1,11 +1,24 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../data/models/workspace_info.dart';
 import '../../data/services/relay_service.dart';
 import 'relay_provider.dart';
+import 'claude_provider.dart';
 
 const _lastWorkspaceKey = 'estelle_last_workspace';
+
+/// JSON에서 List를 안전하게 추출
+List<dynamic>? _safeList(dynamic value) {
+  if (value == null) return null;
+  if (value is List) return value;
+  debugPrint('[WARN] Expected List but got ${value.runtimeType}');
+  return null;
+}
+
+/// 현재 액션 UI가 열린 항목 ID (한 번에 하나만 열림)
+final activeActionItemProvider = StateProvider<String?>((ref) => null);
 
 /// 선택 가능한 항목 타입
 enum SelectedItemType { conversation, task }
@@ -50,6 +63,12 @@ class PylonWorkspacesNotifier extends StateNotifier<Map<int, PylonWorkspaces>> {
       case 'workspace_create_result':
         _handleWorkspaceCreateResult(payload);
         break;
+      case 'conversation_create_result':
+        _handleConversationCreateResult(payload);
+        break;
+      case 'conversation_status':
+        _handleConversationStatus(payload);
+        break;
       case 'task_list_result':
         _handleTaskListResult(payload);
         break;
@@ -69,7 +88,7 @@ class PylonWorkspacesNotifier extends StateNotifier<Map<int, PylonWorkspaces>> {
     final deviceName = deviceInfo?['name'] as String? ?? 'Device $deviceId';
     final deviceIcon = deviceInfo?['icon'] as String? ?? '';
 
-    final workspacesRaw = payload['workspaces'] as List<dynamic>?;
+    final workspacesRaw = _safeList(payload['workspaces']);
     final activeWorkspaceId = payload['activeWorkspaceId'] as String?;
     final activeConversationId = payload['activeConversationId'] as String?;
 
@@ -245,12 +264,70 @@ class PylonWorkspacesNotifier extends StateNotifier<Map<int, PylonWorkspaces>> {
     }
   }
 
+  void _handleConversationCreateResult(Map<String, dynamic>? payload) {
+    if (payload == null) return;
+    if (payload['success'] != true) return;
+
+    final deviceId = payload['deviceId'] as int?;
+    final workspaceId = payload['workspaceId'] as String?;
+    final conversationData = payload['conversation'] as Map<String, dynamic>?;
+
+    if (deviceId == null || workspaceId == null || conversationData == null) return;
+
+    final convId = conversationData['conversationId'] as String?;
+    if (convId == null) return;
+
+    // 새 대화 선택
+    _ref.read(selectedItemProvider.notifier).selectConversation(
+      deviceId, workspaceId, convId,
+    );
+    saveLastWorkspace(
+      workspaceId: workspaceId,
+      itemType: 'conversation',
+      itemId: convId,
+    );
+
+    // Pylon에서 자동 프롬프트가 전송되므로 로딩 상태 표시
+    _ref.read(claudeStateProvider.notifier).state = 'working';
+    _ref.read(isThinkingProvider.notifier).state = true;
+    _ref.read(workStartTimeProvider.notifier).state = DateTime.now();
+  }
+
+  void _handleConversationStatus(Map<String, dynamic>? payload) {
+    if (payload == null) return;
+
+    final deviceId = payload['deviceId'] as int?;
+    final conversationId = payload['conversationId'] as String?;
+    final status = payload['status'] as String?;
+
+    if (deviceId == null || conversationId == null || status == null) return;
+
+    final pylon = state[deviceId];
+    if (pylon == null) return;
+
+    // 워크스페이스 내 대화 상태 업데이트
+    final updatedWorkspaces = pylon.workspaces.map((ws) {
+      final updatedConversations = ws.conversations.map((conv) {
+        if (conv.conversationId == conversationId) {
+          return conv.copyWith(status: status);
+        }
+        return conv;
+      }).toList();
+      return ws.copyWith(conversations: updatedConversations);
+    }).toList();
+
+    state = {
+      ...state,
+      deviceId: pylon.copyWith(workspaces: updatedWorkspaces),
+    };
+  }
+
   void _handleTaskListResult(Map<String, dynamic>? payload) {
     if (payload == null) return;
 
     final deviceId = payload['deviceId'] as int?;
     final workspaceId = payload['workspaceId'] as String?;
-    final tasksRaw = payload['tasks'] as List<dynamic>?;
+    final tasksRaw = _safeList(payload['tasks']);
 
     if (deviceId == null || workspaceId == null) return;
 
@@ -289,8 +366,53 @@ class PylonWorkspacesNotifier extends StateNotifier<Map<int, PylonWorkspaces>> {
     _relay.deleteWorkspace(deviceId, workspaceId);
   }
 
-  void createConversation(int deviceId, String workspaceId, {String? name}) {
-    _relay.createConversation(deviceId, workspaceId, name: name);
+  void renameWorkspace(int deviceId, String workspaceId, String newName) {
+    _relay.renameWorkspace(deviceId, workspaceId, newName);
+  }
+
+  void createConversation(int deviceId, String workspaceId, {String? name, String skillType = 'general'}) {
+    _relay.createConversation(deviceId, workspaceId, name: name, skillType: skillType);
+  }
+
+  void deleteConversation(int deviceId, String workspaceId, String conversationId) {
+    // 현재 선택된 대화가 삭제되는 대화인지 확인
+    final currentSelected = _ref.read(selectedItemProvider);
+    final isCurrentConversation = currentSelected != null &&
+        currentSelected.isConversation &&
+        currentSelected.itemId == conversationId;
+
+    _relay.deleteConversation(deviceId, workspaceId, conversationId);
+
+    // 현재 대화가 삭제되면 다른 대화로 전환하거나 선택 해제
+    if (isCurrentConversation) {
+      final pylon = state[deviceId];
+      if (pylon != null) {
+        final workspace = pylon.workspaces.firstWhere(
+          (ws) => ws.workspaceId == workspaceId,
+          orElse: () => WorkspaceInfo(
+            deviceId: 0, deviceName: '', deviceIcon: '',
+            workspaceId: '', name: '', workingDir: '',
+            conversations: [], tasks: [],
+          ),
+        );
+        // 다른 대화가 있으면 첫 번째 대화 선택, 없으면 선택 해제
+        final otherConversations = workspace.conversations
+            .where((c) => c.conversationId != conversationId)
+            .toList();
+        if (otherConversations.isNotEmpty) {
+          _ref.read(selectedItemProvider.notifier).selectConversation(
+            deviceId, workspaceId, otherConversations.first.conversationId,
+          );
+        } else {
+          _ref.read(selectedItemProvider.notifier).clear();
+          _ref.read(claudeMessagesProvider.notifier).clearMessages();
+        }
+      }
+    }
+  }
+
+  void renameConversation(int deviceId, String workspaceId, String conversationId, String newName) {
+    _relay.renameConversation(deviceId, workspaceId, conversationId, newName);
   }
 }
 
@@ -329,20 +451,26 @@ final pylonListWorkspacesProvider = Provider<List<PylonWorkspaces>>((ref) {
 
 /// 선택된 항목 상태
 class SelectedItemNotifier extends StateNotifier<SelectedItem?> {
-  SelectedItemNotifier() : super(null);
+  final RelayService _relay;
+  final Ref _ref;
+
+  SelectedItemNotifier(this._relay, this._ref) : super(null);
 
   void selectConversation(int deviceId, String workspaceId, String conversationId) {
-    state = SelectedItem(
+    final oldItem = state;
+    final newItem = SelectedItem(
       type: SelectedItemType.conversation,
       workspaceId: workspaceId,
       itemId: conversationId,
       deviceId: deviceId,
     );
-    PylonWorkspacesNotifier.saveLastWorkspace(
-      workspaceId: workspaceId,
-      itemType: 'conversation',
-      itemId: conversationId,
-    );
+    state = newItem;
+
+    // 메시지 로드/저장 처리
+    _ref.read(claudeMessagesProvider.notifier).onConversationSelected(oldItem, newItem);
+
+    // Pylon에 대화 선택 알림 (세션 뷰어 등록)
+    _relay.selectConversation(deviceId, workspaceId, conversationId);
   }
 
   void selectTask(int deviceId, String workspaceId, String taskId) {
@@ -365,7 +493,8 @@ class SelectedItemNotifier extends StateNotifier<SelectedItem?> {
 }
 
 final selectedItemProvider = StateNotifierProvider<SelectedItemNotifier, SelectedItem?>((ref) {
-  return SelectedItemNotifier();
+  final relay = ref.watch(relayServiceProvider);
+  return SelectedItemNotifier(relay, ref);
 });
 
 /// 선택된 워크스페이스
@@ -436,7 +565,7 @@ class FolderListNotifier extends StateNotifier<FolderListState> {
 
     final success = payload['success'] as bool? ?? false;
     final path = payload['path'] as String? ?? '';
-    final folders = (payload['folders'] as List<dynamic>?)
+    final folders = (_safeList(payload['folders']))
         ?.map((f) => f as String)
         .toList() ?? [];
     final error = payload['error'] as String?;

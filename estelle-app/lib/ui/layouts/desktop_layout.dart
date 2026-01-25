@@ -1,33 +1,55 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/constants/colors.dart';
 import '../../core/constants/build_info.dart';
-import '../../data/models/desk_info.dart';
+import '../../data/models/workspace_info.dart';
 import '../../state/providers/relay_provider.dart';
-import '../../state/providers/desk_provider.dart';
 import '../../state/providers/workspace_provider.dart';
-import '../widgets/sidebar/sidebar.dart';
 import '../widgets/sidebar/workspace_sidebar.dart';
 import '../widgets/chat/chat_area.dart';
 import '../widgets/task/task_detail_view.dart';
 import '../widgets/settings/settings_dialog.dart';
 import '../widgets/common/loading_overlay.dart';
+import '../widgets/common/bug_report_dialog.dart';
 
-class DesktopLayout extends ConsumerWidget {
+class DesktopLayout extends ConsumerStatefulWidget {
   const DesktopLayout({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<DesktopLayout> createState() => _DesktopLayoutState();
+}
+
+class _DesktopLayoutState extends ConsumerState<DesktopLayout> {
+  final _focusNode = FocusNode();
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _handleKeyEvent(KeyEvent event) {
+    if (event is KeyDownEvent) {
+      // 백틱(`) 키로 버그 리포트 다이얼로그 열기
+      if (event.logicalKey == LogicalKeyboardKey.backquote) {
+        BugReportDialog.show(context);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final connectionAsync = ref.watch(connectionStateProvider);
-    final pylons = ref.watch(pylonDesksProvider);
     final pylonWorkspaces = ref.watch(pylonWorkspacesProvider);
     final loadingState = ref.watch(loadingStateProvider);
     final selectedItem = ref.watch(selectedItemProvider);
 
-    // 워크스페이스 모드 여부 (워크스페이스가 있으면 새 UI 사용)
-    final useWorkspaceMode = pylonWorkspaces.values.any((p) => p.workspaces.isNotEmpty);
-
-    return Stack(
+    return KeyboardListener(
+      focusNode: _focusNode,
+      autofocus: true,
+      onKeyEvent: _handleKeyEvent,
+      child: Stack(
       children: [
         Scaffold(
           body: Column(
@@ -35,25 +57,22 @@ class DesktopLayout extends ConsumerWidget {
               // Header
               _Header(
                 isConnected: connectionAsync.valueOrNull ?? ref.read(relayServiceProvider).isConnected,
-                pylons: pylons,
+                pylonWorkspaces: pylonWorkspaces,
               ),
 
               // Main content
               Expanded(
                 child: Row(
                   children: [
-                    // Sidebar (조건부)
-                    if (useWorkspaceMode)
-                      const SizedBox(width: 280, child: WorkspaceSidebar())
-                    else
-                      const Sidebar(),
+                    // Sidebar (Workspace only)
+                    const SizedBox(width: 280, child: WorkspaceSidebar()),
 
                     // Divider
                     const VerticalDivider(width: 1, color: NordColors.nord2),
 
                     // Main area (대화 또는 태스크)
                     Expanded(
-                      child: useWorkspaceMode && selectedItem?.isTask == true
+                      child: selectedItem?.isTask == true
                           ? const TaskDetailView()
                           : const ChatArea(),
                     ),
@@ -63,23 +82,24 @@ class DesktopLayout extends ConsumerWidget {
             ],
           ),
         ),
-        // Loading overlay (connecting, loadingDesks, loadingMessages)
+        // Loading overlay (connecting, loadingWorkspaces, loadingMessages)
         if (loadingState != LoadingState.ready)
           Positioned.fill(
             child: LoadingOverlay(state: loadingState),
           ),
       ],
+    ),
     );
   }
 }
 
 class _Header extends StatelessWidget {
   final bool isConnected;
-  final Map<int, PylonInfo> pylons;
+  final Map<int, PylonWorkspaces> pylonWorkspaces;
 
   const _Header({
     required this.isConnected,
-    required this.pylons,
+    required this.pylonWorkspaces,
   });
 
   @override
@@ -169,7 +189,7 @@ class _Header extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 // Connected device icons
-                ...pylons.values.map((pylon) {
+                ...pylonWorkspaces.values.map((pylon) {
                   return Padding(
                     padding: const EdgeInsets.only(left: 4),
                     child: Tooltip(

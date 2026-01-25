@@ -18,9 +18,11 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import fs from 'fs';
 import path from 'path';
-import deskStore from './deskStore.js';
 
 const LOG_DIR = path.join(process.cwd(), 'logs');
+
+// 퍼미션 모드 (전역)
+let permissionMode = 'default';
 
 /**
  * Claude Manager 클래스
@@ -28,11 +30,11 @@ const LOG_DIR = path.join(process.cwd(), 'logs');
 class ClaudeManager {
   constructor(onEvent) {
     this.onEvent = onEvent;
-    this.sessions = new Map();  // deskId -> { query, abortController, sessionId, state, partialText }
+    this.sessions = new Map();  // sessionId -> { query, abortController, claudeSessionId, state, partialText }
     this.pendingPermissions = new Map();
     this.pendingQuestions = new Map();
-    // Desktop 재연결 시 전송할 pending 이벤트 저장
-    this.pendingEvents = new Map();  // deskId -> { type, ... }
+    // 재연결 시 전송할 pending 이벤트 저장
+    this.pendingEvents = new Map();  // sessionId -> { type, ... }
     this.logStream = null;
 
     // 로그 디렉토리 생성
@@ -49,10 +51,10 @@ class ClaudeManager {
     return new Date().toISOString().split('T')[0];
   }
 
-  log(deskId, direction, data) {
+  log(sessionId, direction, data) {
     const entry = {
       timestamp: Date.now(),
-      deskId,
+      sessionId,
       direction,
       data
     };
@@ -62,10 +64,10 @@ class ClaudeManager {
     }
   }
 
-  emitEvent(deskId, event) {
-    this.log(deskId, 'output', event);
+  emitEvent(sessionId, event) {
+    this.log(sessionId, 'output', event);
     if (this.onEvent) {
-      this.onEvent(deskId, event);
+      this.onEvent(sessionId, event);
     }
   }
 
@@ -82,60 +84,114 @@ class ClaudeManager {
   ];
 
   /**
-   * Claude에게 메시지 전송
+   * 퍼미션 모드 설정
    */
-  async sendMessage(deskId, message) {
-    const desk = deskStore.getDesk(deskId);
-    if (!desk) {
-      this.emitEvent(deskId, { type: 'error', error: `Desk not found: ${deskId}` });
+  static setPermissionMode(mode) {
+    permissionMode = mode;
+  }
+
+  static getPermissionMode() {
+    return permissionMode;
+  }
+
+  /**
+   * Claude에게 메시지 전송
+   * @param {string} sessionId - conversationId
+   * @param {string} message - 사용자 메시지
+   * @param {Object} options - 옵션 { workingDir, claudeSessionId }
+   */
+  async sendMessage(sessionId, message, options = {}) {
+    const { workingDir, claudeSessionId } = options;
+
+    if (!workingDir) {
+      this.emitEvent(sessionId, { type: 'error', error: `Working directory not found for: ${sessionId}` });
       return;
     }
 
     // 이미 실행 중이면 중지
-    if (this.sessions.has(deskId)) {
+    if (this.sessions.has(sessionId)) {
       console.log(`[ClaudeManager] Already running, stopping first`);
-      this.stop(deskId);
+      this.stop(sessionId);
       await new Promise(resolve => setTimeout(resolve, 200));
     }
 
-    this.log(deskId, 'input', { type: 'message', message });
-
-    deskStore.updateDeskStatus(deskId, 'working');
-    this.emitEvent(deskId, { type: 'state', state: 'working' });
+    this.log(sessionId, 'input', { type: 'message', message });
+    this.emitEvent(sessionId, { type: 'state', state: 'working' });
 
     try {
-      await this.runQuery(deskId, desk, message);
+      await this.runQuery(sessionId, { workingDir, claudeSessionId }, message);
     } catch (err) {
       console.error(`[ClaudeManager] Error:`, err.message);
-      this.emitEvent(deskId, { type: 'error', error: err.message });
+      this.emitEvent(sessionId, { type: 'error', error: err.message });
     } finally {
-      this.sessions.delete(deskId);
-      deskStore.updateDeskStatus(deskId, 'idle');
-      this.emitEvent(deskId, { type: 'state', state: 'idle' });
+      this.sessions.delete(sessionId);
+      this.emitEvent(sessionId, { type: 'state', state: 'idle' });
     }
   }
 
   /**
-   * SDK query 실행
+   * 워크스페이스의 .mcp.json 파일 읽기
+   * @param {string} workingDir - 워크스페이스 디렉토리
+   * @returns {Object|null} MCP 서버 설정
    */
-  async runQuery(deskId, desk, message) {
+  loadMcpConfig(workingDir) {
+    const mcpConfigPath = path.join(workingDir, '.mcp.json');
+
+    try {
+      if (fs.existsSync(mcpConfigPath)) {
+        const content = fs.readFileSync(mcpConfigPath, 'utf-8');
+        const config = JSON.parse(content);
+
+        if (config.mcpServers && typeof config.mcpServers === 'object') {
+          // cwd가 상대경로면 workingDir 기준으로 변환
+          const servers = {};
+          for (const [name, serverConfig] of Object.entries(config.mcpServers)) {
+            servers[name] = {
+              ...serverConfig,
+              cwd: serverConfig.cwd || workingDir
+            };
+          }
+          console.log(`[ClaudeManager] Loaded MCP config: ${Object.keys(servers).join(', ')}`);
+          return servers;
+        }
+      }
+    } catch (err) {
+      console.error(`[ClaudeManager] Failed to load .mcp.json: ${err.message}`);
+    }
+
+    return null;
+  }
+
+  /**
+   * SDK query 실행
+   * @param {string} sessionId - conversationId
+   * @param {Object} sessionInfo - { workingDir, claudeSessionId }
+   * @param {string} message - 사용자 메시지
+   */
+  async runQuery(sessionId, sessionInfo, message) {
     const abortController = new AbortController();
 
     const queryOptions = {
-      cwd: desk.workingDir,
+      cwd: sessionInfo.workingDir,
       abortController,
       includePartialMessages: true,
       canUseTool: async (toolName, input) => {
-        return this.handlePermission(deskId, toolName, input);
+        return this.handlePermission(sessionId, toolName, input);
       }
     };
 
-    if (desk.claudeSessionId) {
-      queryOptions.resume = desk.claudeSessionId;
-      console.log(`[ClaudeManager] Resuming session: ${desk.claudeSessionId}`);
+    // MCP 서버 설정 로드
+    const mcpServers = this.loadMcpConfig(sessionInfo.workingDir);
+    if (mcpServers) {
+      queryOptions.mcpServers = mcpServers;
     }
 
-    console.log(`[ClaudeManager] Running query in: ${desk.workingDir}`);
+    if (sessionInfo.claudeSessionId) {
+      queryOptions.resume = sessionInfo.claudeSessionId;
+      console.log(`[ClaudeManager] Resuming session: ${sessionInfo.claudeSessionId}`);
+    }
+
+    console.log(`[ClaudeManager] Running query in: ${sessionInfo.workingDir}`);
 
     const q = query({ prompt: message, options: queryOptions });
 
@@ -143,7 +199,7 @@ class ClaudeManager {
     const session = {
       query: q,
       abortController,
-      sessionId: null,
+      claudeSessionId: null,
       state: { type: 'thinking' },
       partialText: '',
       startTime: Date.now(),
@@ -155,24 +211,24 @@ class ClaudeManager {
         cacheCreationInputTokens: 0
       }
     };
-    this.sessions.set(deskId, session);
+    this.sessions.set(sessionId, session);
 
     // 초기 thinking 상태 전송
-    this.emitEvent(deskId, {
+    this.emitEvent(sessionId, {
       type: 'stateUpdate',
       state: session.state,
       partialText: ''
     });
 
     for await (const msg of q) {
-      this.handleMessage(deskId, session, msg);
+      this.handleMessage(sessionId, session, msg);
     }
   }
 
   /**
    * SDK 메시지 처리
    */
-  handleMessage(deskId, session, msg) {
+  handleMessage(sessionId, session, msg) {
     // 디버그 로그
     if (msg.type === 'stream_event') {
       console.log(`[ClaudeManager] STREAM: ${msg.event?.type}`);
@@ -183,12 +239,10 @@ class ClaudeManager {
     switch (msg.type) {
       case 'system':
         if (msg.subtype === 'init') {
-          session.sessionId = msg.session_id;
+          session.claudeSessionId = msg.session_id;
           console.log(`[ClaudeManager] Session: ${msg.session_id}, Model: ${msg.model}`);
 
-          deskStore.updateClaudeSessionId(deskId, msg.session_id);
-
-          this.emitEvent(deskId, {
+          this.emitEvent(sessionId, {
             type: 'init',
             session_id: msg.session_id,
             model: msg.model,
@@ -202,7 +256,7 @@ class ClaudeManager {
         for (const block of msg.message.content) {
           if (block.type === 'text') {
             console.log(`[ClaudeManager] Text complete: ${block.text.length} chars`);
-            this.emitEvent(deskId, {
+            this.emitEvent(sessionId, {
               type: 'textComplete',
               text: block.text
             });
@@ -218,11 +272,11 @@ class ClaudeManager {
                 questions: block.input.questions,
                 toolUseId: block.id
               };
-              this.pendingEvents.set(deskId, askEvent);
-              this.emitEvent(deskId, askEvent);
+              this.pendingEvents.set(sessionId, askEvent);
+              this.emitEvent(sessionId, askEvent);
             } else {
               // 도구 정보 이벤트
-              this.emitEvent(deskId, {
+              this.emitEvent(sessionId, {
                 type: 'toolInfo',
                 toolName: block.name,
                 input: block.input
@@ -255,7 +309,7 @@ class ClaudeManager {
               console.log(`[ClaudeManager] Tool result: ${toolName} - ${isError ? 'ERROR' : 'SUCCESS'}`);
               session.pendingTools.delete(toolUseId);
 
-              this.emitEvent(deskId, {
+              this.emitEvent(sessionId, {
                 type: 'toolComplete',
                 toolName,
                 success: !isError,
@@ -287,7 +341,7 @@ class ClaudeManager {
           if (block?.type === 'text') {
             session.partialText = '';
             session.state = { type: 'responding' };
-            this.emitEvent(deskId, {
+            this.emitEvent(sessionId, {
               type: 'stateUpdate',
               state: session.state,
               partialText: ''
@@ -297,7 +351,7 @@ class ClaudeManager {
             session.partialText = '';
             session.state = { type: 'tool', toolName: block.name };
             session.pendingTools.set(block.id, block.name);
-            this.emitEvent(deskId, {
+            this.emitEvent(sessionId, {
               type: 'stateUpdate',
               state: session.state,
               partialText: ''
@@ -311,14 +365,14 @@ class ClaudeManager {
           if (delta?.type === 'text_delta' && delta.text) {
             session.partialText += delta.text;
             // 스트리밍 텍스트 전송
-            this.emitEvent(deskId, { type: 'text', content: delta.text });
+            this.emitEvent(sessionId, { type: 'text', content: delta.text });
           }
         }
 
         // 블록 종료 - thinking으로 전환
         if (event.type === 'content_block_stop') {
           session.state = { type: 'thinking' };
-          this.emitEvent(deskId, {
+          this.emitEvent(sessionId, {
             type: 'stateUpdate',
             state: session.state,
             partialText: session.partialText
@@ -336,7 +390,7 @@ class ClaudeManager {
         console.log(`[ClaudeManager] Tool progress: ${msg.tool_name} (${msg.elapsed_time_seconds}s)`);
         if (msg.tool_name) {
           session.state = { type: 'tool', toolName: msg.tool_name };
-          this.emitEvent(deskId, {
+          this.emitEvent(sessionId, {
             type: 'stateUpdate',
             state: session.state,
             partialText: ''
@@ -356,7 +410,7 @@ class ClaudeManager {
           session.usage.cacheCreationInputTokens = msg.usage.cache_creation_input_tokens || session.usage.cacheCreationInputTokens;
         }
 
-        this.emitEvent(deskId, {
+        this.emitEvent(sessionId, {
           type: 'result',
           subtype: msg.subtype,
           duration_ms: duration,
@@ -371,10 +425,7 @@ class ClaudeManager {
   /**
    * 권한 핸들러
    */
-  async handlePermission(deskId, toolName, input) {
-    // 퍼미션 모드 체크
-    const permissionMode = deskStore.getPermissionMode();
-
+  async handlePermission(sessionId, toolName, input) {
     // bypassPermissions: 모든 도구 자동 허용 (AskUserQuestion 제외)
     if (permissionMode === 'bypassPermissions' && toolName !== 'AskUserQuestion') {
       console.log(`[ClaudeManager] Bypass mode - auto-allow: ${toolName}`);
@@ -424,7 +475,7 @@ class ClaudeManager {
     }
 
     return new Promise((resolve) => {
-      this.pendingPermissions.set(toolUseId, { resolve, toolName, input, deskId });
+      this.pendingPermissions.set(toolUseId, { resolve, toolName, input, sessionId });
 
       const permEvent = {
         type: 'permission_request',
@@ -432,9 +483,9 @@ class ClaudeManager {
         toolInput: input,
         toolUseId
       };
-      this.pendingEvents.set(deskId, permEvent);
-      deskStore.updateDeskStatus(deskId, 'permission');
-      this.emitEvent(deskId, permEvent);
+      this.pendingEvents.set(sessionId, permEvent);
+      this.emitEvent(sessionId, { type: 'state', state: 'permission' });
+      this.emitEvent(sessionId, permEvent);
     });
   }
 
@@ -443,10 +494,10 @@ class ClaudeManager {
    * - 세션 유무와 관계없이 항상 idle 상태로 전환
    * - abort 실패해도 세션 정리
    */
-  stop(deskId) {
-    console.log(`[ClaudeManager] Force stopping desk: ${deskId}`);
+  stop(sessionId) {
+    console.log(`[ClaudeManager] Force stopping: ${sessionId}`);
 
-    const session = this.sessions.get(deskId);
+    const session = this.sessions.get(sessionId);
 
     // 1. abort 시도 (실패해도 계속 진행)
     if (session?.abortController) {
@@ -459,11 +510,10 @@ class ClaudeManager {
     }
 
     // 2. 세션 강제 삭제
-    this.sessions.delete(deskId);
+    this.sessions.delete(sessionId);
 
     // 3. 상태 강제 변경
-    deskStore.updateDeskStatus(deskId, 'idle');
-    this.emitEvent(deskId, { type: 'state', state: 'idle' });
+    this.emitEvent(sessionId, { type: 'state', state: 'idle' });
 
     // 4. 대기 중인 권한 요청 모두 거부
     for (const [id, pending] of this.pendingPermissions) {
@@ -480,52 +530,28 @@ class ClaudeManager {
     }
     this.pendingQuestions.clear();
 
-    console.log(`[ClaudeManager] Desk ${deskId} force stopped`);
+    console.log(`[ClaudeManager] ${sessionId} force stopped`);
   }
 
   /**
    * 새 세션 시작
    */
-  newSession(deskId) {
-    this.stop(deskId);
-    deskStore.updateClaudeSessionId(deskId, null);
-    this.emitEvent(deskId, { type: 'state', state: 'idle' });
-    console.log(`[ClaudeManager] New session for desk: ${deskId}`);
-  }
-
-  /**
-   * 세션 재개 - 저장된 sessionId로 연결만 복구
-   */
-  async resumeSession(deskId) {
-    const desk = deskStore.getDesk(deskId);
-    if (!desk?.claudeSessionId) {
-      console.log(`[ClaudeManager] No session to resume for desk: ${deskId}`);
-      this.emitEvent(deskId, { type: 'error', error: 'No session to resume' });
-      return;
-    }
-
-    console.log(`[ClaudeManager] Resuming session for desk: ${deskId}, sessionId: ${desk.claudeSessionId}`);
-
-    // 빈 메시지 없이 세션만 활성화 (다음 메시지에서 resume 사용)
-    // 실제로는 query를 보내지 않고, 다음 sendMessage에서 resume 옵션이 적용됨
-    this.emitEvent(deskId, {
-      type: 'init',
-      session_id: desk.claudeSessionId,
-      message: 'Session ready to resume'
-    });
-    this.emitEvent(deskId, { type: 'state', state: 'idle' });
+  newSession(sessionId) {
+    this.stop(sessionId);
+    this.emitEvent(sessionId, { type: 'state', state: 'idle' });
+    console.log(`[ClaudeManager] New session for: ${sessionId}`);
   }
 
   /**
    * 권한 응답
    */
-  respondPermission(deskId, toolUseId, decision) {
+  respondPermission(sessionId, toolUseId, decision) {
     const pending = this.pendingPermissions.get(toolUseId);
     if (pending) {
       console.log(`[ClaudeManager] Permission ${decision} for ${pending.toolName}`);
       this.pendingPermissions.delete(toolUseId);
-      this.pendingEvents.delete(deskId);
-      this.log(deskId, 'input', { type: 'permission_response', toolUseId, decision });
+      this.pendingEvents.delete(sessionId);
+      this.log(sessionId, 'input', { type: 'permission_response', toolUseId, decision });
 
       if (decision === 'allow' || decision === 'allowAll') {
         pending.resolve({ behavior: 'allow', updatedInput: pending.input });
@@ -533,14 +559,14 @@ class ClaudeManager {
         pending.resolve({ behavior: 'deny', message: 'User denied' });
       }
 
-      deskStore.updateDeskStatus(deskId, 'working');
+      this.emitEvent(sessionId, { type: 'state', state: 'working' });
     }
   }
 
   /**
    * 질문 응답
    */
-  respondQuestion(deskId, toolUseId, answer) {
+  respondQuestion(sessionId, toolUseId, answer) {
     // 먼저 toolUseId로 찾기
     let pending = this.pendingQuestions.get(toolUseId);
     let foundId = toolUseId;
@@ -557,8 +583,8 @@ class ClaudeManager {
     if (pending) {
       console.log(`[ClaudeManager] Question answer: ${answer} (id: ${foundId})`);
       this.pendingQuestions.delete(foundId);
-      this.pendingEvents.delete(deskId);
-      this.log(deskId, 'input', { type: 'question_response', toolUseId: foundId, answer });
+      this.pendingEvents.delete(sessionId);
+      this.log(sessionId, 'input', { type: 'question_response', toolUseId: foundId, answer });
 
       const updatedInput = {
         ...pending.input,
@@ -569,10 +595,10 @@ class ClaudeManager {
   }
 
   /**
-   * 특정 데스크의 pending 이벤트 가져오기
+   * 특정 세션의 pending 이벤트 가져오기
    */
-  getPendingEvent(deskId) {
-    return this.pendingEvents.get(deskId) || null;
+  getPendingEvent(sessionId) {
+    return this.pendingEvents.get(sessionId) || null;
   }
 
   /**
@@ -580,23 +606,31 @@ class ClaudeManager {
    */
   getAllPendingEvents() {
     const result = [];
-    for (const [deskId, event] of this.pendingEvents) {
-      result.push({ deskId, event });
+    for (const [sessionId, event] of this.pendingEvents) {
+      result.push({ sessionId, event });
     }
     return result;
   }
 
   /**
-   * 특정 데스크에 활성 세션이 있는지 확인
+   * 특정 세션에 활성 세션이 있는지 확인
    */
-  hasActiveSession(deskId) {
-    return this.sessions.has(deskId);
+  hasActiveSession(sessionId) {
+    return this.sessions.has(sessionId);
+  }
+
+  /**
+   * 세션 시작 시간 가져오기
+   */
+  getSessionStartTime(sessionId) {
+    const session = this.sessions.get(sessionId);
+    return session?.startTime || null;
   }
 
   /**
    * 모든 활성 세션 ID 목록
    */
-  getActiveSessionDeskIds() {
+  getActiveSessionIds() {
     return Array.from(this.sessions.keys());
   }
 
@@ -604,8 +638,8 @@ class ClaudeManager {
    * 정리
    */
   cleanup() {
-    this.sessions.forEach((session, deskId) => {
-      this.stop(deskId);
+    this.sessions.forEach((session, sessionId) => {
+      this.stop(sessionId);
     });
 
     if (this.logStream) {

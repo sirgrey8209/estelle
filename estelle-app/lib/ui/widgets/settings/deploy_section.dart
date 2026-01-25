@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/constants/colors.dart';
 import '../../../data/models/deploy_status.dart';
 import '../../../state/providers/settings_provider.dart';
-import '../../../state/providers/desk_provider.dart';
+import '../../../state/providers/workspace_provider.dart';
 
 /// 컴팩트 배포 섹션
 class DeploySection extends ConsumerWidget {
@@ -12,7 +12,7 @@ class DeploySection extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final status = ref.watch(deployStatusProvider);
-    final pylons = ref.watch(pylonListProvider);
+    final pylons = ref.watch(pylonListWorkspacesProvider);
     final notifier = ref.read(deployStatusProvider.notifier);
 
     // 외곽선 색상 결정

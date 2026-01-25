@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/constants/colors.dart';
 import '../../../state/providers/relay_provider.dart';
-import '../../../state/providers/desk_provider.dart';
+import '../../../state/providers/workspace_provider.dart';
 
 /// 배포 상태
 enum DeployPhase {
@@ -137,7 +137,7 @@ class _DeployDialogState extends ConsumerState<DeployDialog> {
 
         // 이미 사전 승인된 경우 → 다른 Pylon 체크
         if (_confirmed) {
-          final pylons = ref.read(pylonListProvider);
+          final pylons = ref.read(pylonListWorkspacesProvider);
           if (pylons.length <= 1) {
             // Pylon이 1대뿐이면 바로 ready
             _phase = DeployPhase.ready;
@@ -230,7 +230,7 @@ class _DeployDialogState extends ConsumerState<DeployDialog> {
 
     // 빌드 완료 상태에서 승인하면 → 다른 Pylon 체크
     if (_confirmed && _phase == DeployPhase.buildReady) {
-      final pylons = ref.read(pylonListProvider);
+      final pylons = ref.read(pylonListWorkspacesProvider);
       setState(() {
         if (pylons.length <= 1) {
           // Pylon이 1대뿐이면 바로 ready
@@ -272,7 +272,7 @@ class _DeployDialogState extends ConsumerState<DeployDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final pylons = ref.watch(pylonListProvider);
+    final pylons = ref.watch(pylonListWorkspacesProvider);
 
     return AlertDialog(
       backgroundColor: NordColors.nord1,

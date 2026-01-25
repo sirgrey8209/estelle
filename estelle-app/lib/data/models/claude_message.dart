@@ -255,10 +255,11 @@ class ToolInputParser {
           cmd: prompt.length > 100 ? '${prompt.substring(0, 100)}...' : prompt,
         );
       case 'TodoWrite':
-        final todos = input['todos'] as List?;
+        final todosRaw = input['todos'];
+        final count = todosRaw is List ? todosRaw.length : 0;
         return (
           desc: 'Update todos',
-          cmd: '${todos?.length ?? 0} items',
+          cmd: '$count items',
         );
       default:
         final firstVal = input.values.whereType<String>().firstOrNull;

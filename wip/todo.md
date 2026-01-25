@@ -44,13 +44,30 @@
 
 ## 장기 과제 (Long-term)
 
-### Phase 2 기능
-- [ ] Pylon 간 데스크 동기화 (회사↔집)
+### Worker System Phase 2
+- [ ] 우선순위 (priority)
+- [ ] 긴급 끼워넣기
+- [ ] task_update, task_delete
+- [ ] 태스크 상세 보기, 로그
+
+### Worker System Phase 3
+- [ ] Prerequisites (선행 조건)
+- [ ] 워커 세션 대화 연결 (오류 디버깅)
+- [ ] 일시정지/재개
+- [ ] 배포 연동 (MCP deploy_*)
+
+### Blob Transfer Protocol (연구)
+- [ ] 대용량 데이터 전송 레이어 설계
+- [ ] 텍스트/바이너리 모두 지원
+- [ ] 청크 분할 (64KB 단위)
+- [ ] 파일 다운로드 (Pylon → Client)
+- [ ] 파일 업로드 (Client → Pylon)
+- [ ] 이미지 미리보기
+
+### 기타 확장
+- [ ] Pylon 간 워크스페이스 동기화 (회사↔집)
 - [ ] 오프라인 메시지 큐
 - [ ] 푸시 알림 (Mobile)
-
-### 확장
-- [ ] 다중 Claude 세션 (데스크당 여러 대화)
 - [ ] MCP 서버 원격 제어
 - [ ] 작업 예약 (스케줄러)
 
