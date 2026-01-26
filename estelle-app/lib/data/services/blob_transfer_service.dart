@@ -171,6 +171,7 @@ class BlobTransferService {
       _transfers[blobId] = transfer;
 
       // blob_start 전송
+      print('[BLOB] Sending blob_start to deviceId: $targetDeviceId, blobId: $blobId, totalChunks: $totalChunks, sameDevice: $sameDevice');
       _relayService.send({
         'type': 'blob_start',
         'to': {'deviceId': targetDeviceId, 'deviceType': 'pylon'},
@@ -209,8 +210,9 @@ class BlobTransferService {
       }
 
       return blobId;
-    } catch (e) {
-      print('Upload error: $e');
+    } catch (e, stack) {
+      print('[BLOB] Upload error: $e');
+      print('[BLOB] Stack: $stack');
       onError?.call('', e.toString());
       return null;
     }
@@ -220,6 +222,7 @@ class BlobTransferService {
     final transfer = _transfers[blobId];
     if (transfer == null) return;
 
+    print('[BLOB] Starting to send ${transfer.totalChunks} chunks for blobId: $blobId');
     for (int i = 0; i < transfer.totalChunks; i++) {
       final start = i * chunkSize;
       final end = (start + chunkSize > bytes.length) ? bytes.length : start + chunkSize;
@@ -243,6 +246,8 @@ class BlobTransferService {
       // 너무 빠른 전송 방지
       await Future.delayed(const Duration(milliseconds: 5));
     }
+
+    print('[BLOB] All chunks sent, sending blob_end for blobId: $blobId');
 
     // blob_end 전송
     _relayService.send({
