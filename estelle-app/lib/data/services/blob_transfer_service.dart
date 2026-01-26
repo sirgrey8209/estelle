@@ -137,9 +137,22 @@ class BlobTransferService {
     bool sameDevice = false,
   }) async {
     try {
+      // 디렉토리 초기화 대기
+      if (_imagesDir == null) {
+        print('[BLOB] Waiting for directory initialization...');
+        await _initializeDirectories();
+      }
+
+      if (_imagesDir == null) {
+        print('[BLOB] ERROR: Images directory not initialized');
+        return null;
+      }
+
       final bytes = await file.readAsBytes();
       final filename = path.basename(file.path);
       final mimeType = lookupMimeType(filename) ?? 'application/octet-stream';
+
+      print('[BLOB] Starting upload: $filename (${bytes.length} bytes) to device $targetDeviceId');
 
       // 로컬 이미지 폴더에 복사
       final timestamp = DateTime.now().millisecondsSinceEpoch;
