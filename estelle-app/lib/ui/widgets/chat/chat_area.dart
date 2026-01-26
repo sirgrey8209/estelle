@@ -88,7 +88,7 @@ class _ChatHeader extends ConsumerWidget {
                     ],
                   ),
                 Text(
-                  '📁 ${workspace.workingDir}',
+                  workspace.workingDir,
                   style: const TextStyle(
                     fontSize: 12,
                     color: NordColors.nord4,

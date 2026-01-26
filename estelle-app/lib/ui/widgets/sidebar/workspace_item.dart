@@ -244,15 +244,18 @@ class _WorkspaceHeaderState extends State<_WorkspaceHeader> with SingleTickerPro
               size: 20,
               color: AppColors.textSecondary,
             ),
+            const SizedBox(width: 4),
 
             // Pylon 아이콘
-            Text(widget.pylonIcon, style: const TextStyle(fontSize: 16)),
-            const SizedBox(width: 8),
+            if (widget.pylonIcon.isNotEmpty)
+              Text(widget.pylonIcon, style: const TextStyle(fontSize: 16)),
+            if (widget.pylonIcon.isNotEmpty)
+              const SizedBox(width: 8),
 
             // 워크스페이스 이름
             Expanded(
               child: Text(
-                '📁 ${widget.workspace.name}',
+                widget.workspace.name,
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,

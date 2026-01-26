@@ -6,8 +6,8 @@
 // ============ 캐릭터 ============
 
 const CHARACTERS = {
-  stella: { name: 'Stella', icon: '⭐', description: '회사 PC' },
-  selene: { name: 'Selene', icon: '🌙', description: '집 PC' },
+  1: { name: 'Device 1', icon: '🏢', description: '회사' },
+  2: { name: 'Device 2', icon: '🏠', description: '집' },
   lucy: { name: 'Lucy', icon: '📱', description: 'Mobile' },
   estelle: { name: 'Estelle', icon: '💫', description: 'Relay' }
 };

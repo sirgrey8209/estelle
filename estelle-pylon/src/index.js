@@ -301,6 +301,24 @@ class Pylon {
       return;
     }
 
+    // 구버전 릴레이 서버 호환: registered 응답 처리
+    if (type === 'registered') {
+      this.authenticated = true;
+      // deviceInfo가 없으면 기본값 설정
+      if (!this.deviceInfo) {
+        const deviceId = this.deviceId;
+        const icons = { 1: '🏢', 2: '🏠' };
+        this.deviceInfo = {
+          deviceId,
+          name: `Device ${deviceId}`,
+          icon: icons[deviceId] || '💻'
+        };
+      }
+      this.log(`Registered as Device ${this.deviceId}`);
+      this.broadcastWorkspaceList();
+      return;
+    }
+
     if (type === 'device_status') {
       this.localServer?.broadcast({ type: 'device_status', devices: payload?.devices });
       // 새 클라이언트 접속 시 Pylon 상태 브로드캐스트
@@ -983,11 +1001,19 @@ class Pylon {
     const workspaces = workspaceStore.getAllWorkspaces();
     const activeState = workspaceStore.getActiveState();
 
+    // deviceInfo가 없으면 기본값 사용 (릴레이 인증 전일 수 있음)
+    const icons = { 1: '🏢', 2: '🏠' };
+    const deviceInfo = this.deviceInfo || {
+      deviceId: this.deviceId,
+      name: `Device ${this.deviceId}`,
+      icon: icons[this.deviceId] || '💻'
+    };
+
     const workspaceListMsg = {
       type: 'workspace_list_result',
       payload: {
         deviceId: this.deviceId,
-        deviceInfo: this.deviceInfo,
+        deviceInfo: deviceInfo,
         workspaces,
         activeWorkspaceId: activeState.activeWorkspaceId,
         activeConversationId: activeState.activeConversationId

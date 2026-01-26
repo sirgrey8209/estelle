@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/constants/colors.dart';
 import '../../state/providers/relay_provider.dart';
 import '../../state/providers/workspace_provider.dart';
+import '../../state/providers/claude_provider.dart';
+import '../../data/models/workspace_info.dart';
 import '../widgets/chat/chat_area.dart';
 import '../widgets/sidebar/workspace_sidebar.dart';
 import '../widgets/task/task_detail_view.dart';
@@ -18,8 +20,8 @@ class MobileLayout extends ConsumerStatefulWidget {
 }
 
 class _MobileLayoutState extends ConsumerState<MobileLayout> {
-  final _pageController = PageController(initialPage: 1);
-  int _currentPage = 1;
+  final _pageController = PageController(initialPage: 0);
+  int _currentPage = 0;
   double? _dragStartX;
   double? _dragStartPage;
 
@@ -27,7 +29,20 @@ class _MobileLayoutState extends ConsumerState<MobileLayout> {
   int _tapCount = 0;
   DateTime? _lastTapTime;
 
-  static const int _pageCount = 3; // Workspaces, Claude, Settings
+  static const int _pageCount = 2; // Workspaces, Chat
+
+  @override
+  void initState() {
+    super.initState();
+    // 워크스페이스/대화 선택 시 채팅 탭으로 전환
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.listen(selectedItemProvider, (previous, next) {
+        if (next != null && previous?.itemId != next.itemId && _currentPage == 0) {
+          _goToPage(1);
+        }
+      });
+    });
+  }
 
   @override
   void dispose() {
@@ -64,8 +79,8 @@ class _MobileLayoutState extends ConsumerState<MobileLayout> {
   }
 
   double _dragToPageOffset(double dragRatio) {
-    const deadZone = 0.2;
-    const maxZone = 0.5;
+    const deadZone = 0.1;
+    const maxZone = 0.4;
 
     if (dragRatio.abs() < deadZone) return 0;
 
@@ -112,19 +127,19 @@ class _MobileLayoutState extends ConsumerState<MobileLayout> {
     _goToPage(targetPage);
   }
 
-  bool _shouldShowOverlay(LoadingState loadingState, int page) {
-    switch (page) {
-      case 0:
-        return loadingState == LoadingState.connecting ||
-            loadingState == LoadingState.loadingWorkspaces;
-      case 1:
-        return loadingState == LoadingState.connecting ||
-            loadingState == LoadingState.loadingWorkspaces;
-      case 2:
-        return loadingState == LoadingState.connecting;
-      default:
-        return false;
-    }
+  void _openSettings() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => const Scaffold(
+          body: SettingsScreen(),
+        ),
+      ),
+    );
+  }
+
+  bool _shouldShowOverlay(LoadingState loadingState) {
+    return loadingState == LoadingState.connecting ||
+        loadingState == LoadingState.loadingWorkspaces;
   }
 
   @override
@@ -134,177 +149,135 @@ class _MobileLayoutState extends ConsumerState<MobileLayout> {
     final loadingState = ref.watch(loadingStateProvider);
     final pylonWorkspaces = ref.watch(pylonWorkspacesProvider);
     final selectedItem = ref.watch(selectedItemProvider);
+    final selectedWorkspace = ref.watch(selectedWorkspaceProvider);
+    final selectedConversation = ref.watch(selectedConversationProvider);
 
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: NordColors.nord1,
-        title: Row(
-          children: [
-            if (_currentPage == 0) ...[
-              const Text(
-                'Workspaces',
-                style: TextStyle(fontSize: 18, color: NordColors.nord6),
-              ),
-            ] else if (_currentPage == 1 && selectedItem != null) ...[
-              IconButton(
-                icon: const Icon(Icons.arrow_back, size: 20),
-                onPressed: () => _goToPage(0),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  selectedItem.isTask ? '📋 태스크' : '💬 대화',
-                  style: const TextStyle(fontSize: 16, color: NordColors.nord5),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ] else if (_currentPage == 2) ...[
-              const Icon(Icons.settings, color: NordColors.nord4, size: 20),
-              const SizedBox(width: 8),
-              const Text(
-                'Settings',
-                style: TextStyle(fontSize: 18, color: NordColors.nord6),
-              ),
-            ] else ...[
-              if (_currentPage == 1) ...[
-                IconButton(
-                  icon: const Icon(Icons.arrow_back, size: 20),
-                  onPressed: () => _goToPage(0),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),
-                const SizedBox(width: 12),
-              ],
-              const Text(
-                'Estelle',
-                style: TextStyle(fontSize: 18, color: NordColors.nord6),
-              ),
-            ],
-          ],
-        ),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: NordColors.nord2,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    isConnected ? 'Connected' : 'Disconnected',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: isConnected ? NordColors.nord14 : NordColors.nord11,
-                    ),
-                  ),
-                ),
-                if (isConnected) ...[
-                  const SizedBox(width: 6),
-                  ...pylonWorkspaces.values.map((pylon) {
-                    return Padding(
-                      padding: const EdgeInsets.only(left: 2),
-                      child: Text(pylon.icon, style: const TextStyle(fontSize: 14)),
-                    );
-                  }),
-                ],
-              ],
-            ),
-          ),
-        ],
-      ),
       body: GestureDetector(
         onTap: _onTap,
         behavior: HitTestBehavior.translucent,
         child: Stack(
-        children: [
-          Column(
-            children: [
-              // Tab navigation bar
-              _TabBar(
-                currentPage: _currentPage,
-                onTabSelected: _goToPage,
-              ),
-              // Page content
-              Expanded(
-                child: Listener(
-                  onPointerDown: _onPointerDown,
-                  onPointerMove: _onPointerMove,
-                  onPointerUp: _onPointerUp,
-                  child: PageView(
-                    controller: _pageController,
-                    physics: const NeverScrollableScrollPhysics(),
-                    onPageChanged: (page) => setState(() => _currentPage = page),
-                    children: [
-                      // Page 0: Workspace List
-                      const WorkspaceSidebar(),
-                      // Page 1: Chat or Task
-                      selectedItem?.isTask == true
-                          ? const TaskDetailView()
-                          : const ChatArea(showHeader: false),
-                      // Page 2: Settings
-                      const SettingsScreen(),
-                    ],
+          children: [
+            Column(
+              children: [
+                // 최상단 바: Estelle / 접속상태 / 설정
+                _TopBar(
+                  isConnected: isConnected,
+                  pylons: pylonWorkspaces.values.toList(),
+                  onSettingsTap: _openSettings,
+                ),
+                // 서브 헤더
+                _SubHeader(
+                  currentPage: _currentPage,
+                  selectedItem: selectedItem,
+                  selectedWorkspace: selectedWorkspace,
+                  selectedConversation: selectedConversation,
+                  onBackTap: () => _goToPage(0),
+                ),
+                // 콘텐츠 영역
+                Expanded(
+                  child: Listener(
+                    onPointerDown: _onPointerDown,
+                    onPointerMove: _onPointerMove,
+                    onPointerUp: _onPointerUp,
+                    child: PageView(
+                      controller: _pageController,
+                      physics: const NeverScrollableScrollPhysics(),
+                      onPageChanged: (page) => setState(() => _currentPage = page),
+                      children: [
+                        // Page 0: Workspace List
+                        const WorkspaceSidebar(),
+                        // Page 1: Chat or Task
+                        selectedItem?.isTask == true
+                            ? const TaskDetailView()
+                            : const ChatArea(showHeader: false),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-            ],
-          ),
-          // Loading overlay (conditional per page)
-          if (_shouldShowOverlay(loadingState, _currentPage))
-            Positioned.fill(
-              child: LoadingOverlay(state: loadingState),
+              ],
             ),
-        ],
-      ),
+            // Loading overlay
+            if (_shouldShowOverlay(loadingState))
+              Positioned.fill(
+                child: LoadingOverlay(state: loadingState),
+              ),
+          ],
+        ),
       ),
     );
   }
 }
 
-class _TabBar extends StatelessWidget {
-  final int currentPage;
-  final ValueChanged<int> onTabSelected;
+/// 최상단 바: Estelle / 접속상태+Pylon아이콘 / 설정버튼
+class _TopBar extends StatelessWidget {
+  final bool isConnected;
+  final List<PylonWorkspaces> pylons;
+  final VoidCallback onSettingsTap;
 
-  const _TabBar({
-    required this.currentPage,
-    required this.onTabSelected,
+  const _TopBar({
+    required this.isConnected,
+    required this.pylons,
+    required this.onSettingsTap,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 40,
+      padding: EdgeInsets.only(
+        top: MediaQuery.of(context).padding.top + 8,
+        left: 16,
+        right: 8,
+        bottom: 8,
+      ),
       decoration: const BoxDecoration(
-        color: NordColors.nord1,
+        color: NordColors.nord0,
         border: Border(
           bottom: BorderSide(color: NordColors.nord2),
         ),
       ),
       child: Row(
         children: [
-          _TabItem(
-            label: 'Workspaces',
-            icon: Icons.workspaces,
-            isSelected: currentPage == 0,
-            onTap: () => onTabSelected(0),
+          // 로고
+          const Text(
+            'Estelle',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: NordColors.nord6,
+            ),
           ),
-          _TabItem(
-            label: 'Claude',
-            icon: Icons.chat,
-            isSelected: currentPage == 1,
-            onTap: () => onTabSelected(1),
+          const Spacer(),
+          // 접속 상태 + Pylon 아이콘들 (컴팩트: 🏢✓🏠✓ 또는 🏢✗🏠✗ 또는 Offline)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+            decoration: BoxDecoration(
+              color: NordColors.nord1,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: isConnected
+                ? Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: pylons.isNotEmpty
+                        ? pylons.map((pylon) => Text(
+                            '${pylon.icon}✓',
+                            style: const TextStyle(fontSize: 12),
+                          )).toList()
+                        : const [
+                            Text('🏢✗🏠✗', style: TextStyle(fontSize: 12)),
+                          ],
+                  )
+                : const Text(
+                    'Offline',
+                    style: TextStyle(fontSize: 11, color: NordColors.nord11),
+                  ),
           ),
-          _TabItem(
-            label: 'Settings',
-            icon: Icons.settings,
-            isSelected: currentPage == 2,
-            onTap: () => onTabSelected(2),
+          // 설정 버튼
+          IconButton(
+            icon: const Icon(Icons.settings, color: NordColors.nord4, size: 22),
+            onPressed: onSettingsTap,
+            padding: const EdgeInsets.all(8),
+            constraints: const BoxConstraints(),
           ),
         ],
       ),
@@ -312,53 +285,185 @@ class _TabBar extends StatelessWidget {
   }
 }
 
-class _TabItem extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final bool isSelected;
-  final VoidCallback onTap;
+/// 서브 헤더: 워크스페이스 페이지면 "Workspaces", 채팅 페이지면 "← 대화명 + 메뉴"
+class _SubHeader extends ConsumerWidget {
+  final int currentPage;
+  final SelectedItem? selectedItem;
+  final WorkspaceInfo? selectedWorkspace;
+  final ConversationInfo? selectedConversation;
+  final VoidCallback onBackTap;
 
-  const _TabItem({
-    required this.label,
-    required this.icon,
-    required this.isSelected,
-    required this.onTap,
+  const _SubHeader({
+    required this.currentPage,
+    required this.selectedItem,
+    required this.selectedWorkspace,
+    required this.selectedConversation,
+    required this.onBackTap,
   });
 
   @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: InkWell(
-        onTap: onTap,
-        child: Container(
-          decoration: BoxDecoration(
-            border: Border(
-              bottom: BorderSide(
-                color: isSelected ? NordColors.nord10 : Colors.transparent,
-                width: 2,
-              ),
-            ),
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Container(
+      height: 48,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      decoration: const BoxDecoration(
+        color: NordColors.nord1,
+        border: Border(
+          bottom: BorderSide(color: NordColors.nord2),
+        ),
+      ),
+      child: currentPage == 0
+          ? _buildWorkspaceHeader()
+          : _buildChatHeader(context, ref),
+    );
+  }
+
+  Widget _buildWorkspaceHeader() {
+    return const Row(
+      children: [
+        SizedBox(width: 8),
+        Icon(Icons.workspaces, color: NordColors.nord4, size: 20),
+        SizedBox(width: 8),
+        Text(
+          'Workspaces',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: NordColors.nord5,
           ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildChatHeader(BuildContext context, WidgetRef ref) {
+    final title = selectedItem?.isTask == true
+        ? '📋 태스크'
+        : selectedConversation != null
+            ? '${selectedConversation!.skillIcon} ${selectedConversation!.name}'
+            : '대화를 선택하세요';
+
+    return Row(
+      children: [
+        // 뒤로가기 버튼
+        IconButton(
+          icon: const Icon(Icons.arrow_back, color: NordColors.nord4, size: 20),
+          onPressed: onBackTap,
+          padding: const EdgeInsets.all(8),
+          constraints: const BoxConstraints(),
+        ),
+        const SizedBox(width: 4),
+        // 대화명
+        Expanded(
+          child: Text(
+            title,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: NordColors.nord5,
+            ),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        // 메뉴 버튼 (대화 선택된 경우만)
+        if (selectedConversation != null && selectedWorkspace != null)
+          _SessionMenuButton(
+            workspace: selectedWorkspace!,
+            conversation: selectedConversation!,
+          ),
+      ],
+    );
+  }
+}
+
+/// 세션 메뉴 버튼 (새 세션, 컴팩트)
+class _SessionMenuButton extends ConsumerWidget {
+  final WorkspaceInfo workspace;
+  final ConversationInfo conversation;
+
+  const _SessionMenuButton({
+    required this.workspace,
+    required this.conversation,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return PopupMenuButton<String>(
+      icon: const Icon(Icons.more_vert, color: NordColors.nord4, size: 20),
+      color: NordColors.nord1,
+      onSelected: (action) => _handleAction(context, ref, action),
+      itemBuilder: (context) => [
+        const PopupMenuItem(
+          value: 'new_session',
           child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(
-                icon,
-                size: 16,
-                color: isSelected ? NordColors.nord10 : NordColors.nord4,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: isSelected ? NordColors.nord10 : NordColors.nord4,
-                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                ),
-              ),
+              Icon(Icons.refresh, color: NordColors.nord4, size: 18),
+              SizedBox(width: 8),
+              Text('새 세션', style: TextStyle(color: NordColors.nord5)),
             ],
           ),
         ),
+        const PopupMenuItem(
+          value: 'compact',
+          child: Row(
+            children: [
+              Icon(Icons.compress, color: NordColors.nord4, size: 18),
+              SizedBox(width: 8),
+              Text('컴팩트', style: TextStyle(color: NordColors.nord5)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _handleAction(BuildContext context, WidgetRef ref, String action) {
+    switch (action) {
+      case 'new_session':
+        _showNewSessionDialog(context, ref);
+        break;
+      case 'compact':
+        ref.read(relayServiceProvider).sendClaudeControl(
+          workspace.deviceId,
+          workspace.workspaceId,
+          conversation.conversationId,
+          'compact',
+        );
+        break;
+    }
+  }
+
+  void _showNewSessionDialog(BuildContext context, WidgetRef ref) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: NordColors.nord1,
+        title: const Text('새 세션', style: TextStyle(color: NordColors.nord5)),
+        content: const Text(
+          '현재 세션을 종료하고 새 세션을 시작할까요?\n기존 대화 내용은 삭제됩니다.',
+          style: TextStyle(color: NordColors.nord4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('취소', style: TextStyle(color: NordColors.nord4)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: NordColors.nord11),
+            onPressed: () {
+              ref.read(relayServiceProvider).sendClaudeControl(
+                workspace.deviceId,
+                workspace.workspaceId,
+                conversation.conversationId,
+                'new_session',
+              );
+              ref.read(claudeMessagesProvider.notifier).clearMessages();
+              ref.read(claudeMessagesProvider.notifier).clearConversationCache(conversation.conversationId);
+              Navigator.pop(context);
+            },
+            child: const Text('새 세션 시작'),
+          ),
+        ],
       ),
     );
   }

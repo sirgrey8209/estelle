@@ -16,8 +16,8 @@ const DEPLOY_JSON_URL = 'https://github.com/sirgrey8209/estelle/releases/downloa
 
 // ============ 디바이스 정의 ============
 const DEVICES = {
-  1: { name: 'Selene', icon: '🌙', role: 'home', allowedIps: ['*'] },
-  2: { name: 'Stella', icon: '⭐', role: 'office', allowedIps: ['*'] },
+  1: { name: 'Device 1', icon: '🏢', role: 'office', allowedIps: ['*'] },
+  2: { name: 'Device 2', icon: '🏠', role: 'home', allowedIps: ['*'] },
 };
 
 // 동적 디바이스 ID 범위 (100 이상은 동적 허용)
