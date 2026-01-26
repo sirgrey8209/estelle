@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -8,6 +9,8 @@ import '../../../core/constants/colors.dart';
 import '../../../state/providers/workspace_provider.dart';
 import '../../../state/providers/claude_provider.dart';
 import '../../../state/providers/relay_provider.dart';
+import '../../../state/providers/image_upload_provider.dart';
+import '../../../data/services/blob_transfer_service.dart';
 
 /// 첨부 이미지 상태
 final attachedImageProvider = StateProvider<File?>((ref) => null);
@@ -23,12 +26,54 @@ class _InputBarState extends ConsumerState<InputBar> {
   final _controller = TextEditingController();
   final _focusNode = FocusNode();
   bool _hasText = false;
-  bool _isUploading = false;
+  StreamSubscription? _completeSubscription;
+  StreamSubscription? _progressSubscription;
 
   @override
   void initState() {
     super.initState();
     _controller.addListener(_onTextChanged);
+    _setupBlobListeners();
+  }
+
+  void _setupBlobListeners() {
+    final blobService = ref.read(blobTransferServiceProvider);
+
+    // 업로드 완료 리스너
+    _completeSubscription = blobService.completeStream.listen((event) {
+      // 업로드 완료 시 Provider 업데이트
+      ref.read(imageUploadProvider.notifier).completeUpload(
+        event.blobId,
+        event.pylonPath,
+      );
+
+      // 큐에 대기 중인 메시지가 있으면 전송
+      _processMessageQueue();
+    });
+
+    // 프로그레스 및 실패 리스너
+    _progressSubscription = blobService.progressStream.listen((transfer) {
+      if (transfer.state == BlobTransferState.failed) {
+        // 실패 시 Provider 업데이트
+        ref.read(imageUploadProvider.notifier).failUpload(
+          transfer.blobId,
+          transfer.error ?? '업로드 실패',
+        );
+
+        // 잠시 후 업로드 정보 제거 (버블 삭제)
+        Future.delayed(const Duration(seconds: 3), () {
+          if (mounted) {
+            ref.read(imageUploadProvider.notifier).removeUpload(transfer.blobId);
+          }
+        });
+      } else {
+        // 프로그레스 업데이트
+        ref.read(imageUploadProvider.notifier).updateProgress(
+          transfer.blobId,
+          transfer.sentChunks,
+        );
+      }
+    });
   }
 
   @override
@@ -36,6 +81,8 @@ class _InputBarState extends ConsumerState<InputBar> {
     _controller.removeListener(_onTextChanged);
     _controller.dispose();
     _focusNode.dispose();
+    _completeSubscription?.cancel();
+    _progressSubscription?.cancel();
     super.dispose();
   }
 
@@ -63,10 +110,8 @@ class _InputBarState extends ConsumerState<InputBar> {
     final isDesktopLayout = screenWidth >= 600;
 
     if (isDesktopLayout || _isDesktop) {
-      // 데스크탑: 팝업 메뉴
       _showDesktopMenu();
     } else {
-      // 모바일: 바텀 시트
       _showMobileSheet();
     }
   }
@@ -174,6 +219,7 @@ class _InputBarState extends ConsumerState<InputBar> {
   Future<void> _send() async {
     final text = _controller.text.trim();
     final attachedImage = ref.read(attachedImageProvider);
+    final uploadState = ref.read(imageUploadProvider);
 
     // 텍스트나 이미지 둘 다 없으면 리턴
     if (text.isEmpty && attachedImage == null) return;
@@ -187,57 +233,103 @@ class _InputBarState extends ConsumerState<InputBar> {
     final claudeState = ref.read(claudeStateProvider);
     if (claudeState == 'working') return;
 
-    setState(() => _isUploading = true);
+    // 업로드 중이면 메시지를 큐에 넣음
+    if (uploadState.hasActiveUpload) {
+      if (text.isNotEmpty) {
+        ref.read(imageUploadProvider.notifier).queueMessage(text);
+        _controller.clear();
+      }
+      return;
+    }
 
-    try {
-      // 이미지가 있으면 Blob 업로드 (Pylon에서 Claude로 메시지 전달)
-      if (attachedImage != null) {
-        final blobService = ref.read(blobTransferServiceProvider);
+    // 이미지가 있으면 업로드 시작
+    if (attachedImage != null) {
+      await _startImageUpload(attachedImage, text);
+      _controller.clear();
+      ref.read(attachedImageProvider.notifier).state = null;
+    } else {
+      // 텍스트만 있는 경우
+      _sendTextMessage(text);
+      _controller.clear();
+    }
+  }
 
-        // 동일 PC 여부 확인 (Pylon과 클라이언트가 같은 PC)
-        // TODO: 실제로는 Pylon의 deviceId와 비교 필요
-        final sameDevice = _isDesktop;
+  Future<void> _startImageUpload(File image, String text) async {
+    final selectedItem = ref.read(selectedItemProvider);
+    if (selectedItem == null) return;
 
-        // 전송 중 placeholder 표시
-        ref.read(sendingMessageProvider.notifier).state = text.isNotEmpty ? text : '(이미지 전송)';
+    final blobService = ref.read(blobTransferServiceProvider);
+    final sameDevice = _isDesktop;
 
-        await blobService.uploadImage(
-          file: attachedImage,
-          targetDeviceId: selectedItem.deviceId,
-          deskId: selectedItem.workspaceId,
+    // 업로드 시작
+    final blobId = await blobService.uploadImage(
+      file: image,
+      targetDeviceId: selectedItem.deviceId,
+      deskId: selectedItem.workspaceId,
+      conversationId: selectedItem.itemId,
+      message: text.isEmpty ? null : text,
+      sameDevice: sameDevice,
+    );
+
+    if (blobId != null) {
+      final transfer = blobService.getTransfer(blobId);
+      if (transfer != null) {
+        // Provider에 업로드 정보 등록
+        ref.read(imageUploadProvider.notifier).startUpload(
+          blobId: blobId,
+          localPath: transfer.localPath ?? '',
+          filename: transfer.filename,
+          totalChunks: transfer.totalChunks,
           conversationId: selectedItem.itemId,
-          message: text,
-          sameDevice: sameDevice,
-        );
-
-        // 첨부 이미지 제거
-        ref.read(attachedImageProvider.notifier).state = null;
-
-        // Blob 전송 시 Pylon의 blob_end 핸들러에서 Claude로 메시지 전달하므로
-        // 여기서는 sendClaudeMessage 호출하지 않음
-      } else {
-        // 텍스트만 있는 경우
-        // 전송 중 placeholder 표시
-        ref.read(sendingMessageProvider.notifier).state = text;
-
-        // Send to relay
-        ref.read(relayServiceProvider).sendClaudeMessage(
-          selectedItem.deviceId,
-          selectedItem.workspaceId,
-          selectedItem.itemId,
-          text,
+          message: text.isEmpty ? null : text,
         );
       }
 
-      // Update state
-      ref.read(claudeStateProvider.notifier).state = 'working';
-      ref.read(isThinkingProvider.notifier).state = true;
-      ref.read(workStartTimeProvider.notifier).state = DateTime.now();
+      // 함께 보낸 텍스트가 있으면 큐에 추가
+      if (text.isNotEmpty) {
+        ref.read(imageUploadProvider.notifier).queueMessage(text);
+      }
+    }
+  }
 
-      // Clear input
-      _controller.clear();
-    } finally {
-      setState(() => _isUploading = false);
+  void _sendTextMessage(String text) {
+    final selectedItem = ref.read(selectedItemProvider);
+    if (selectedItem == null) return;
+
+    // 최근 이미지 경로들 가져오기
+    final imagePaths = ref.read(imageUploadProvider.notifier).consumeRecentImagePaths();
+
+    // 이미지 경로가 있으면 메시지에 포함
+    String messageToSend = text;
+    if (imagePaths.isNotEmpty) {
+      final imageRefs = imagePaths.map((p) => '[image:$p]').join('\n');
+      messageToSend = '$imageRefs\n$text';
+    }
+
+    ref.read(sendingMessageProvider.notifier).state = text;
+
+    ref.read(relayServiceProvider).sendClaudeMessage(
+      selectedItem.deviceId,
+      selectedItem.workspaceId,
+      selectedItem.itemId,
+      messageToSend,
+    );
+
+    ref.read(claudeStateProvider.notifier).state = 'working';
+    ref.read(isThinkingProvider.notifier).state = true;
+    ref.read(workStartTimeProvider.notifier).state = DateTime.now();
+  }
+
+  void _processMessageQueue() {
+    final uploadState = ref.read(imageUploadProvider);
+
+    // 아직 업로드 중이면 대기
+    if (uploadState.hasActiveUpload) return;
+
+    // 큐에서 메시지 꺼내서 전송
+    final queued = ref.read(imageUploadProvider.notifier).dequeueMessage();
+    if (queued != null) {
+      _sendTextMessage(queued.text);
     }
   }
 
@@ -258,6 +350,8 @@ class _InputBarState extends ConsumerState<InputBar> {
     final claudeState = ref.watch(claudeStateProvider);
     final isWorking = claudeState == 'working';
     final attachedImage = ref.watch(attachedImageProvider);
+    final uploadState = ref.watch(imageUploadProvider);
+    final isBusy = uploadState.isBusy;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -336,9 +430,9 @@ class _InputBarState extends ConsumerState<InputBar> {
             children: [
               // + 버튼
               IconButton(
-                onPressed: _isUploading ? null : _showAttachMenu,
+                onPressed: isBusy ? null : _showAttachMenu,
                 icon: const Icon(Icons.add_circle_outline),
-                color: NordColors.nord8,
+                color: isBusy ? NordColors.nord3 : NordColors.nord8,
                 iconSize: 24,
                 padding: const EdgeInsets.all(8),
                 constraints: const BoxConstraints(),
@@ -367,7 +461,7 @@ class _InputBarState extends ConsumerState<InputBar> {
                     child: TextField(
                       controller: _controller,
                       focusNode: _focusNode,
-                      enabled: !_isUploading,
+                      enabled: true,
                       maxLines: null,
                       minLines: 1,
                       scrollPhysics: const BouncingScrollPhysics(),
@@ -376,7 +470,7 @@ class _InputBarState extends ConsumerState<InputBar> {
                         color: NordColors.nord5,
                       ),
                       decoration: InputDecoration(
-                        hintText: 'Type a message...',
+                        hintText: isBusy ? '이미지 전송 중...' : 'Type a message...',
                         hintStyle: const TextStyle(color: NordColors.nord3),
                         filled: true,
                         fillColor: NordColors.nord0,
@@ -404,13 +498,19 @@ class _InputBarState extends ConsumerState<InputBar> {
               const SizedBox(width: 8),
 
               // 전송/중지 버튼
-              if (_isUploading)
+              if (isBusy)
                 const SizedBox(
-                  width: 24,
-                  height: 24,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: NordColors.nord8,
+                  width: 40,
+                  height: 40,
+                  child: Center(
+                    child: SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: NordColors.nord8,
+                      ),
+                    ),
                   ),
                 )
               else if (isWorking)

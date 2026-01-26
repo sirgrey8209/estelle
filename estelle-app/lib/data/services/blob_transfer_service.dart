@@ -12,7 +12,8 @@ import 'relay_service.dart';
 /// Blob 전송 상태
 enum BlobTransferState {
   pending,
-  inProgress,
+  uploading,
+  waitingAck,  // 청크 전송 완료, Pylon 응답 대기
   completed,
   failed,
 }
@@ -26,12 +27,13 @@ class BlobTransfer {
   final int chunkSize;
   final int totalChunks;
   final Map<String, dynamic> context;
-  final bool isUpload; // true: 업로드, false: 다운로드
+  final bool isUpload;
 
   BlobTransferState state = BlobTransferState.pending;
-  int receivedChunks = 0;
+  int sentChunks = 0;
   List<Uint8List> chunks = [];
   String? localPath;
+  String? pylonPath;  // Pylon에서 저장된 경로
   String? error;
 
   BlobTransfer({
@@ -45,11 +47,25 @@ class BlobTransfer {
     required this.isUpload,
   });
 
-  double get progress => totalChunks > 0 ? receivedChunks / totalChunks : 0;
+  double get progress => totalChunks > 0 ? sentChunks / totalChunks : 0;
 }
 
-typedef BlobProgressCallback = void Function(String blobId, double progress);
-typedef BlobCompleteCallback = void Function(String blobId, String? localPath, String? error);
+/// 업로드 완료 이벤트
+class BlobUploadCompleteEvent {
+  final String blobId;
+  final String pylonPath;
+  final String conversationId;
+
+  BlobUploadCompleteEvent({
+    required this.blobId,
+    required this.pylonPath,
+    required this.conversationId,
+  });
+}
+
+typedef ProgressCallback = void Function(String blobId, int sent, int total);
+typedef CompleteCallback = void Function(String blobId, String pylonPath);
+typedef ErrorCallback = void Function(String blobId, String error);
 
 class BlobTransferService {
   static const int chunkSize = 65536; // 64KB
@@ -58,11 +74,18 @@ class BlobTransferService {
 
   final Map<String, BlobTransfer> _transfers = {};
   final _progressController = StreamController<BlobTransfer>.broadcast();
+  final _completeController = StreamController<BlobUploadCompleteEvent>.broadcast();
   StreamSubscription? _messageSubscription;
 
   Stream<BlobTransfer> get progressStream => _progressController.stream;
+  Stream<BlobUploadCompleteEvent> get completeStream => _completeController.stream;
 
   String? _imagesDir;
+
+  // 콜백
+  ProgressCallback? onProgress;
+  CompleteCallback? onComplete;
+  ErrorCallback? onError;
 
   BlobTransferService(this._relayService) {
     _initializeDirectories();
@@ -96,11 +119,15 @@ class BlobTransferService {
         case 'blob_ack':
           _handleBlobAck(data);
           break;
+        case 'blob_upload_complete':
+          _handleBlobUploadComplete(data);
+          break;
       }
     });
   }
 
   /// 이미지 파일 업로드 시작
+  /// 반환: blobId (진행 추적용)
   Future<String?> uploadImage({
     required File file,
     required int targetDeviceId,
@@ -140,7 +167,7 @@ class BlobTransferService {
         isUpload: true,
       );
       transfer.localPath = localPath;
-      transfer.state = BlobTransferState.inProgress;
+      transfer.state = BlobTransferState.uploading;
       _transfers[blobId] = transfer;
 
       // blob_start 전송
@@ -161,9 +188,10 @@ class BlobTransferService {
         },
       });
 
+      _progressController.add(transfer);
+
       // 동일 디바이스면 청크 전송 스킵
       if (sameDevice) {
-        // blob_end만 전송
         _relayService.send({
           'type': 'blob_end',
           'to': {'deviceId': targetDeviceId, 'deviceType': 'pylon'},
@@ -174,17 +202,16 @@ class BlobTransferService {
             'skipped': true,
           },
         });
-
-        transfer.state = BlobTransferState.completed;
-        _progressController.add(transfer);
+        transfer.state = BlobTransferState.waitingAck;
       } else {
         // 청크 전송
         await _sendChunks(blobId, bytes, targetDeviceId);
       }
 
-      return localPath;
+      return blobId;
     } catch (e) {
       print('Upload error: $e');
+      onError?.call('', e.toString());
       return null;
     }
   }
@@ -209,11 +236,12 @@ class BlobTransferService {
         },
       });
 
-      transfer.receivedChunks = i + 1;
+      transfer.sentChunks = i + 1;
       _progressController.add(transfer);
+      onProgress?.call(blobId, transfer.sentChunks, transfer.totalChunks);
 
       // 너무 빠른 전송 방지
-      await Future.delayed(const Duration(milliseconds: 10));
+      await Future.delayed(const Duration(milliseconds: 5));
     }
 
     // blob_end 전송
@@ -227,12 +255,38 @@ class BlobTransferService {
       },
     });
 
-    transfer.state = BlobTransferState.completed;
+    transfer.state = BlobTransferState.waitingAck;
     _progressController.add(transfer);
   }
 
   String _calculateChecksum(Uint8List bytes) {
     return 'sha256:${sha256.convert(bytes).toString()}';
+  }
+
+  /// Pylon에서 업로드 완료 응답 처리
+  void _handleBlobUploadComplete(Map<String, dynamic> data) {
+    final payload = data['payload'] as Map<String, dynamic>?;
+    if (payload == null) return;
+
+    final blobId = payload['blobId'] as String;
+    final pylonPath = payload['path'] as String;
+    final conversationId = payload['conversationId'] as String? ?? '';
+
+    final transfer = _transfers[blobId];
+    if (transfer != null) {
+      transfer.state = BlobTransferState.completed;
+      transfer.pylonPath = pylonPath;
+      _progressController.add(transfer);
+    }
+
+    // 완료 이벤트 발송
+    _completeController.add(BlobUploadCompleteEvent(
+      blobId: blobId,
+      pylonPath: pylonPath,
+      conversationId: conversationId,
+    ));
+
+    onComplete?.call(blobId, pylonPath);
   }
 
   // ============ 다운로드 (Pylon → Client) ============
@@ -253,7 +307,7 @@ class BlobTransferService {
       isUpload: false,
     );
 
-    transfer.state = BlobTransferState.inProgress;
+    transfer.state = BlobTransferState.uploading;
     transfer.chunks = List.filled(transfer.totalChunks, Uint8List(0));
     _transfers[blobId] = transfer;
     _progressController.add(transfer);
@@ -272,7 +326,7 @@ class BlobTransferService {
     final chunk = base64Decode(dataStr);
 
     transfer.chunks[index] = chunk;
-    transfer.receivedChunks++;
+    transfer.sentChunks++;
     _progressController.add(transfer);
   }
 
@@ -282,16 +336,15 @@ class BlobTransferService {
 
     final blobId = payload['blobId'] as String;
     final transfer = _transfers[blobId];
-    if (transfer == null) return;
+    if (transfer == null || transfer.isUpload) return;
 
-    // 모든 청크 조합
+    // 다운로드인 경우에만 처리
     final allBytes = BytesBuilder();
     for (final chunk in transfer.chunks) {
       allBytes.add(chunk);
     }
     final bytes = allBytes.toBytes();
 
-    // 로컬에 저장
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final localFilename = '${timestamp}_${transfer.filename}';
     final localPath = path.join(_imagesDir!, localFilename);
@@ -303,7 +356,6 @@ class BlobTransferService {
     transfer.state = BlobTransferState.completed;
     _progressController.add(transfer);
 
-    // 청크 메모리 해제
     transfer.chunks.clear();
   }
 
@@ -344,13 +396,26 @@ class BlobTransferService {
     return null;
   }
 
-  /// 이미지 폴더 경로
   String? get imagesDirectory => _imagesDir;
 
   BlobTransfer? getTransfer(String blobId) => _transfers[blobId];
 
+  void cancelUpload(String blobId) {
+    final transfer = _transfers[blobId];
+    if (transfer != null) {
+      transfer.state = BlobTransferState.failed;
+      transfer.error = 'Cancelled';
+      _progressController.add(transfer);
+    }
+  }
+
+  void removeTransfer(String blobId) {
+    _transfers.remove(blobId);
+  }
+
   void dispose() {
     _messageSubscription?.cancel();
     _progressController.close();
+    _completeController.close();
   }
 }

@@ -3,11 +3,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/constants/colors.dart';
 import '../../../data/models/claude_message.dart';
 import '../../../state/providers/claude_provider.dart';
+import '../../../state/providers/image_upload_provider.dart';
+import '../../../state/providers/workspace_provider.dart';
 import 'message_bubble.dart';
 import 'tool_card.dart';
 import 'result_info.dart';
 import 'streaming_bubble.dart';
 import 'working_indicator.dart';
+import 'uploading_image_bubble.dart';
 
 class MessageList extends ConsumerStatefulWidget {
   const MessageList({super.key});
@@ -73,6 +76,14 @@ class _MessageListState extends ConsumerState<MessageList> {
     final hasMoreHistory = ref.watch(hasMoreHistoryProvider);
 
     final claudeState = ref.watch(claudeStateProvider);
+
+    // 현재 대화의 업로드 중인 이미지들
+    final uploadState = ref.watch(imageUploadProvider);
+    final selectedItem = ref.watch(selectedItemProvider);
+    final currentConversationId = selectedItem?.itemId ?? '';
+    final uploadingImages = uploadState.getUploadsForConversation(currentConversationId)
+        .where((u) => u.status == ImageUploadStatus.uploading)
+        .toList();
 
     if (messages.isEmpty && textBuffer.isEmpty) {
       // 초기 로드 중이면 로딩 인디케이터 표시
@@ -149,13 +160,15 @@ class _MessageListState extends ConsumerState<MessageList> {
 
     // 아이템 카운트 계산
     // reverse: true이므로 최신 아이템이 index 0
-    // 순서: [working] [streaming] [sending] [messages...] [loading indicator]
+    // 순서: [working] [streaming] [uploading images] [sending] [messages...] [loading indicator]
     final hasWorking = workStartTime != null;
     final hasStreaming = textBuffer.isNotEmpty;
     final hasSending = sendingMessage != null;
+    final hasUploading = uploadingImages.isNotEmpty;
 
     final itemCount = (hasWorking ? 1 : 0) +
         (hasStreaming ? 1 : 0) +
+        (hasUploading ? uploadingImages.length : 0) +
         (hasSending ? 1 : 0) +
         messages.length +
         (showLoadingIndicator ? 1 : 0);
@@ -195,7 +208,22 @@ class _MessageListState extends ConsumerState<MessageList> {
                 currentIdx++;
               }
 
-              // 3. Sending placeholder
+              // 3. Uploading images
+              if (hasUploading) {
+                final uploadStartIdx = currentIdx;
+                final uploadEndIdx = uploadStartIdx + uploadingImages.length;
+                if (index >= uploadStartIdx && index < uploadEndIdx) {
+                  final uploadIdx = index - uploadStartIdx;
+                  final upload = uploadingImages[uploadIdx];
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: UploadingImageBubble(upload: upload),
+                  );
+                }
+                currentIdx += uploadingImages.length;
+              }
+
+              // 4. Sending placeholder
               if (hasSending) {
                 if (index == currentIdx) {
                   return Padding(
@@ -206,7 +234,7 @@ class _MessageListState extends ConsumerState<MessageList> {
                 currentIdx++;
               }
 
-              // 4. Messages (역순: 최신이 먼저)
+              // 5. Messages (역순: 최신이 먼저)
               final messageStartIdx = currentIdx;
               final messageEndIdx = messageStartIdx + messages.length;
               if (index >= messageStartIdx && index < messageEndIdx) {
@@ -234,7 +262,7 @@ class _MessageListState extends ConsumerState<MessageList> {
                 );
               }
 
-              // 5. Loading indicator (맨 끝 = reverse 시 화면 상단)
+              // 6. Loading indicator (맨 끝 = reverse 시 화면 상단)
               if (showLoadingIndicator && index == itemCount - 1) {
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 12),

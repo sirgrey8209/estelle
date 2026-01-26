@@ -821,34 +821,31 @@ class Pylon {
       const result = this.blobHandler.handleBlobEnd(message);
       this.log(`[BLOB] End result: ${JSON.stringify(result)}`);
 
-      // 이미지 업로드 완료 시 Claude에 메시지 전달
+      // 이미지 업로드 완료 시 처리
       if (result.success && result.context?.type === 'image_upload') {
         const { context } = result;
         const imagePath = result.path;
-        const textMessage = context.message || '';
-
-        // 이미지 경로를 메시지에 포함하여 Claude에 전달
-        // Claude Code SDK의 Read 도구가 이미지를 읽을 수 있음
-        const messageForClaude = textMessage
-          ? `[첨부된 이미지: ${imagePath}]\n\n${textMessage}`
-          : `[첨부된 이미지: ${imagePath}]\n\n이 이미지를 확인해주세요.`;
-
-        // claude_send와 동일한 처리
         const { conversationId, deskId: workspaceId } = context;
-        if (conversationId) {
-          let workingDir = null;
-          let conversation = null;
-          if (workspaceId) {
-            const workspace = workspaceStore.getWorkspace(workspaceId);
-            workingDir = workspace?.workingDir;
-            conversation = workspaceStore.getConversation(workspaceId, conversationId);
-          }
+        const blobId = payload?.blobId;
 
-          // 원본 메시지 (이미지 태그 포함) 저장
-          const originalMessage = `[image:${imagePath}]\n${textMessage}`;
+        // 클라이언트에 업로드 완료 알림 (Pylon 경로 포함)
+        this.send({
+          type: 'blob_upload_complete',
+          to: from,
+          payload: {
+            blobId,
+            path: imagePath,
+            conversationId,
+            workspaceId,
+          }
+        });
+
+        // 히스토리에 이미지 메시지 저장
+        if (conversationId) {
+          const originalMessage = `[image:${imagePath}]`;
           messageStore.addUserMessage(conversationId, originalMessage);
 
-          // 브로드캐스트
+          // 브로드캐스트 (다른 클라이언트에게 알림)
           const userMessageEvent = {
             type: 'claude_event',
             payload: {
@@ -863,20 +860,10 @@ class Pylon {
           };
           this.send({ ...userMessageEvent, broadcast: 'clients' });
           this.localServer?.broadcast(userMessageEvent);
-
-          // Claude에 전달
-          let promptToSend = messageForClaude;
-          const claudeSessionId = conversation?.claudeSessionId || null;
-
-          if (conversation && !claudeSessionId) {
-            const personaContent = this.loadPersona(conversation.skillType || 'general');
-            if (personaContent) {
-              promptToSend = `<persona>\n${personaContent}\n</persona>\n\n${messageForClaude}`;
-            }
-          }
-
-          this.claudeManager.sendMessage(conversationId, promptToSend, { workingDir, claudeSessionId });
         }
+
+        // 참고: Claude로 메시지 전달은 하지 않음
+        // 클라이언트가 다음 메시지 전송 시 이미지 경로를 포함하여 보냄
       }
       return;
     }
