@@ -418,6 +418,17 @@ class _SessionMenuButton extends ConsumerWidget {
             ],
           ),
         ),
+        const PopupMenuDivider(),
+        const PopupMenuItem(
+          value: 'bug_report',
+          child: Row(
+            children: [
+              Icon(Icons.bug_report, color: NordColors.nord4, size: 18),
+              SizedBox(width: 8),
+              Text('버그 리포트', style: TextStyle(color: NordColors.nord5)),
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -434,6 +445,9 @@ class _SessionMenuButton extends ConsumerWidget {
           conversation.conversationId,
           'compact',
         );
+        break;
+      case 'bug_report':
+        BugReportDialog.show(context);
         break;
     }
   }

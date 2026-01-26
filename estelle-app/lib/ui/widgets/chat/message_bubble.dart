@@ -1,5 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as p;
 import '../../../core/constants/colors.dart';
 import '../../../data/models/claude_message.dart';
 
@@ -215,43 +217,128 @@ class _UserContent extends StatelessWidget {
 }
 
 /// 첨부 이미지 위젯
-class _AttachmentImage extends StatelessWidget {
+class _AttachmentImage extends StatefulWidget {
   final AttachmentInfo attachment;
 
   const _AttachmentImage({required this.attachment});
 
   @override
-  Widget build(BuildContext context) {
-    final localPath = attachment.localPath;
+  State<_AttachmentImage> createState() => _AttachmentImageState();
+}
 
-    // 로컬 파일이 있으면 표시
-    if (localPath != null) {
-      final file = File(localPath);
-      if (file.existsSync()) {
-        return GestureDetector(
-          onTap: () => _showFullImage(context, file),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(
-                maxWidth: 200,
-                maxHeight: 200,
-              ),
-              child: Image.file(
-                file,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stack) {
-                  return _buildPlaceholder();
-                },
-              ),
+class _AttachmentImageState extends State<_AttachmentImage> {
+  File? _imageFile;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _findLocalImage();
+  }
+
+  Future<void> _findLocalImage() async {
+    final attachment = widget.attachment;
+
+    // 먼저 localPath로 시도
+    if (attachment.localPath != null) {
+      final file = File(attachment.localPath!);
+      if (await file.exists()) {
+        if (mounted) {
+          setState(() {
+            _imageFile = file;
+            _isLoading = false;
+          });
+        }
+        return;
+      }
+    }
+
+    // localPath가 없거나 파일이 없으면 images 폴더에서 검색
+    try {
+      final appDir = await getApplicationDocumentsDirectory();
+      final imagesDir = Directory(p.join(appDir.path, 'estelle', 'images'));
+
+      if (await imagesDir.exists()) {
+        await for (final entity in imagesDir.list()) {
+          if (entity is File) {
+            final basename = p.basename(entity.path);
+            // 파일명이 일치하거나 타임스탬프_파일명 형식으로 끝나는지 확인
+            if (basename == attachment.filename ||
+                basename.endsWith('_${attachment.filename}')) {
+              if (mounted) {
+                setState(() {
+                  _imageFile = entity;
+                  _isLoading = false;
+                });
+              }
+              return;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      // 검색 실패 시 무시
+    }
+
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return _buildLoadingPlaceholder();
+    }
+
+    if (_imageFile != null) {
+      return GestureDetector(
+        onTap: () => _showFullImage(context, _imageFile!),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(
+              maxWidth: 200,
+              maxHeight: 200,
+            ),
+            child: Image.file(
+              _imageFile!,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stack) {
+                return _buildPlaceholder();
+              },
             ),
           ),
-        );
-      }
+        ),
+      );
     }
 
     // 파일이 없으면 플레이스홀더 표시 (다운로드 필요)
     return _buildPlaceholder();
+  }
+
+  Widget _buildLoadingPlaceholder() {
+    return Container(
+      width: 120,
+      height: 80,
+      decoration: BoxDecoration(
+        color: NordColors.nord2,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: NordColors.nord3),
+      ),
+      child: const Center(
+        child: SizedBox(
+          width: 20,
+          height: 20,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            color: NordColors.nord4,
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildPlaceholder() {
@@ -269,7 +356,7 @@ class _AttachmentImage extends StatelessWidget {
           const Icon(Icons.image, color: NordColors.nord4, size: 24),
           const SizedBox(height: 4),
           Text(
-            attachment.filename,
+            widget.attachment.filename,
             style: const TextStyle(
               fontSize: 10,
               color: NordColors.nord4,

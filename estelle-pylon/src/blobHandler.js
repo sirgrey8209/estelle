@@ -78,10 +78,9 @@ export class BlobHandler {
       fs.mkdirSync(conversationDir, { recursive: true });
     }
 
-    // 저장 경로
-    const timestamp = Date.now();
+    // 저장 경로 - 앱에서 받은 파일명 그대로 사용 (타임스탬프 이미 포함)
     const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const savePath = path.join(conversationDir, `${timestamp}_${safeFilename}`);
+    const savePath = path.join(conversationDir, safeFilename);
 
     // 전송 정보 저장
     activeTransfers.set(blobId, {

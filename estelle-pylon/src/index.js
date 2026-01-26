@@ -850,9 +850,10 @@ class Pylon {
           }
         });
 
-        // 히스토리에 이미지 메시지 저장
+        // 히스토리에 이미지 메시지 저장 (파일명만 저장)
         if (conversationId) {
-          const originalMessage = `[image:${imagePath}]`;
+          const imageFilename = path.basename(imagePath);
+          const originalMessage = `[image:${imageFilename}]`;
           messageStore.addUserMessage(conversationId, originalMessage);
 
           // 브로드캐스트 (다른 클라이언트에게 알림)

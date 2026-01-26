@@ -36,23 +36,33 @@ class UserTextMessage implements ClaudeMessage {
   });
 
   /// 메시지 내용에서 이미지 경로 추출
+  /// 히스토리에는 [image:파일명] 형식으로 저장됨
   static ({String text, List<AttachmentInfo> attachments}) parseContent(String rawContent) {
     final attachments = <AttachmentInfo>[];
     var text = rawContent;
 
-    // [image:/path/to/file.png] 패턴 파싱
+    // [image:파일명] 또는 [image:/전체/경로] 패턴 파싱
     final imageRegex = RegExp(r'\[image:([^\]]+)\]');
     final matches = imageRegex.allMatches(rawContent);
 
+    int index = 0;
     for (final match in matches) {
-      final path = match.group(1)!;
-      final filename = path.split('/').last.split('\\').last;
+      final imagePath = match.group(1)!;
+      // 파일명만 추출 (경로 구분자가 있으면 마지막 부분)
+      final filename = imagePath.split('/').last.split('\\').last;
+
+      // 전체 경로인지 파일명만인지 확인
+      final isFullPath = imagePath.contains('/') || imagePath.contains('\\');
+
       attachments.add(AttachmentInfo(
-        id: 'img_${DateTime.now().millisecondsSinceEpoch}',
+        id: 'img_${DateTime.now().millisecondsSinceEpoch}_$index',
         filename: filename,
-        localPath: path,
+        // 전체 경로면 localPath로, 파일명만이면 null (나중에 검색)
+        localPath: isFullPath ? imagePath : null,
+        remotePath: imagePath,
       ));
       text = text.replaceFirst(match.group(0)!, '');
+      index++;
     }
 
     return (text: text.trim(), attachments: attachments);

@@ -202,7 +202,7 @@ class BlobTransferService {
         'to': {'deviceId': targetDeviceId, 'deviceType': 'pylon'},
         'payload': {
           'blobId': blobId,
-          'filename': filename,
+          'filename': localFilename,  // 타임스탬프 포함된 파일명 전달
           'mimeType': mimeType,
           'totalSize': bytes.length,
           'chunkSize': chunkSize,
