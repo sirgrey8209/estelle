@@ -190,9 +190,7 @@ class _InputBarState extends ConsumerState<InputBar> {
     setState(() => _isUploading = true);
 
     try {
-      String? imagePath;
-
-      // 이미지가 있으면 업로드
+      // 이미지가 있으면 Blob 업로드 (Pylon에서 Claude로 메시지 전달)
       if (attachedImage != null) {
         final blobService = ref.read(blobTransferServiceProvider);
 
@@ -200,7 +198,10 @@ class _InputBarState extends ConsumerState<InputBar> {
         // TODO: 실제로는 Pylon의 deviceId와 비교 필요
         final sameDevice = _isDesktop;
 
-        imagePath = await blobService.uploadImage(
+        // 전송 중 placeholder 표시
+        ref.read(sendingMessageProvider.notifier).state = text.isNotEmpty ? text : '(이미지 전송)';
+
+        await blobService.uploadImage(
           file: attachedImage,
           targetDeviceId: selectedItem.deviceId,
           deskId: selectedItem.workspaceId,
@@ -211,23 +212,22 @@ class _InputBarState extends ConsumerState<InputBar> {
 
         // 첨부 이미지 제거
         ref.read(attachedImageProvider.notifier).state = null;
+
+        // Blob 전송 시 Pylon의 blob_end 핸들러에서 Claude로 메시지 전달하므로
+        // 여기서는 sendClaudeMessage 호출하지 않음
+      } else {
+        // 텍스트만 있는 경우
+        // 전송 중 placeholder 표시
+        ref.read(sendingMessageProvider.notifier).state = text;
+
+        // Send to relay
+        ref.read(relayServiceProvider).sendClaudeMessage(
+          selectedItem.deviceId,
+          selectedItem.workspaceId,
+          selectedItem.itemId,
+          text,
+        );
       }
-
-      // 메시지 전송 (이미지 경로 포함)
-      final messageToSend = imagePath != null
-          ? '[image:$imagePath]\n$text'
-          : text;
-
-      // 전송 중 placeholder 표시
-      ref.read(sendingMessageProvider.notifier).state = text.isNotEmpty ? text : '(이미지 전송)';
-
-      // Send to relay
-      ref.read(relayServiceProvider).sendClaudeMessage(
-        selectedItem.deviceId,
-        selectedItem.workspaceId,
-        selectedItem.itemId,
-        messageToSend,
-      );
 
       // Update state
       ref.read(claudeStateProvider.notifier).state = 'working';
