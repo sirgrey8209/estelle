@@ -43,6 +43,11 @@ export const MessageType: {
   CLAUDE_ANSWER: 'claude_answer';
   CLAUDE_CONTROL: 'claude_control';
   CLAUDE_SET_PERMISSION_MODE: 'claude_set_permission_mode';
+  BLOB_START: 'blob_start';
+  BLOB_CHUNK: 'blob_chunk';
+  BLOB_END: 'blob_end';
+  BLOB_ACK: 'blob_ack';
+  BLOB_REQUEST: 'blob_request';
   PING: 'ping';
   PONG: 'pong';
   ERROR: 'error';
@@ -219,3 +224,61 @@ export function createMessage<T>(
 export function getCharacter(pcId: string): Character;
 
 export function getDeskFullName(pcId: string, deskName: string): string;
+
+// ============ Blob 전송 ============
+
+export const BlobConfig: {
+  CHUNK_SIZE: 65536;
+  ENCODING: 'base64';
+};
+
+export interface Attachment {
+  id: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  localPath?: string;
+}
+
+export interface BlobStartPayload {
+  blobId: string;
+  filename: string;
+  mimeType: string;
+  totalSize: number;
+  chunkSize: number;
+  totalChunks: number;
+  encoding: 'base64';
+  context: {
+    type: 'image_upload' | 'file_transfer';
+    deskId: string;
+    conversationId?: string;
+    message?: string;
+  };
+  sameDevice?: boolean;
+  localPath?: string;
+}
+
+export interface BlobChunkPayload {
+  blobId: string;
+  index: number;
+  data: string;
+  size: number;
+}
+
+export interface BlobEndPayload {
+  blobId: string;
+  checksum?: string;
+  totalReceived: number;
+}
+
+export interface BlobAckPayload {
+  blobId: string;
+  receivedChunks: number[];
+  missingChunks: number[];
+}
+
+export interface BlobRequestPayload {
+  blobId: string;
+  filename: string;
+  localPath?: string;
+}

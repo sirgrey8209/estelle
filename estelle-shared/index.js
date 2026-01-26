@@ -41,6 +41,13 @@ const MessageType = {
   CLAUDE_CONTROL: 'claude_control',
   CLAUDE_SET_PERMISSION_MODE: 'claude_set_permission_mode',
 
+  // Blob 전송
+  BLOB_START: 'blob_start',
+  BLOB_CHUNK: 'blob_chunk',
+  BLOB_END: 'blob_end',
+  BLOB_ACK: 'blob_ack',
+  BLOB_REQUEST: 'blob_request',
+
   // 기타
   PING: 'ping',
   PONG: 'pong',
@@ -75,6 +82,13 @@ const PermissionMode = {
   DEFAULT: 'default',
   ACCEPT_EDITS: 'acceptEdits',
   BYPASS: 'bypassPermissions'
+};
+
+// ============ Blob 전송 상수 ============
+
+const BlobConfig = {
+  CHUNK_SIZE: 65536,  // 64KB
+  ENCODING: 'base64'
 };
 
 // ============ 헬퍼 함수 ============
@@ -116,6 +130,7 @@ module.exports = {
   DeskStatus,
   ClaudeEventType,
   PermissionMode,
+  BlobConfig,
   createMessage,
   getCharacter,
   getDeskFullName

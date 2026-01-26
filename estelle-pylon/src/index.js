@@ -23,6 +23,7 @@ import logger from './logger.js';
 import packetLogger from './packetLogger.js';
 import FileSimulator from './fileSimulator.js';
 import messageStore from './messageStore.js';
+import { BlobHandler } from './blobHandler.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -47,6 +48,7 @@ class Pylon {
     this.claudeManager = null;
     this.flutterManager = null;
     this.fileSimulator = null;
+    this.blobHandler = null;
     // 세션별 시청자 추적: Map<sessionId, Set<clientDeviceId>>
     this.sessionViewers = new Map();
     // Claude 누적 사용량
@@ -102,6 +104,8 @@ class Pylon {
     this.flutterManager = new FlutterDevManager((workspaceId, event) => {
       this.sendFlutterEvent(workspaceId, event);
     });
+
+    this.blobHandler = new BlobHandler((msg) => this.send(msg));
 
     this.localServer = new LocalServer(LOCAL_PORT);
     this.localServer.setRelayStatusCallback(() => this.authenticated);
@@ -800,6 +804,88 @@ class Pylon {
       return;
     }
 
+    // ===== Blob 전송 =====
+
+    if (type === 'blob_start') {
+      const result = this.blobHandler.handleBlobStart(message);
+      this.log(`[BLOB] Start result: ${JSON.stringify(result)}`);
+      return;
+    }
+
+    if (type === 'blob_chunk') {
+      this.blobHandler.handleBlobChunk(message);
+      return;
+    }
+
+    if (type === 'blob_end') {
+      const result = this.blobHandler.handleBlobEnd(message);
+      this.log(`[BLOB] End result: ${JSON.stringify(result)}`);
+
+      // 이미지 업로드 완료 시 Claude에 메시지 전달
+      if (result.success && result.context?.type === 'image_upload') {
+        const { context } = result;
+        const imagePath = result.path;
+        const textMessage = context.message || '';
+
+        // 이미지 경로를 메시지에 포함하여 Claude에 전달
+        // Claude Code SDK의 Read 도구가 이미지를 읽을 수 있음
+        const messageForClaude = textMessage
+          ? `[첨부된 이미지: ${imagePath}]\n\n${textMessage}`
+          : `[첨부된 이미지: ${imagePath}]\n\n이 이미지를 확인해주세요.`;
+
+        // claude_send와 동일한 처리
+        const { conversationId, deskId: workspaceId } = context;
+        if (conversationId) {
+          let workingDir = null;
+          let conversation = null;
+          if (workspaceId) {
+            const workspace = workspaceStore.getWorkspace(workspaceId);
+            workingDir = workspace?.workingDir;
+            conversation = workspaceStore.getConversation(workspaceId, conversationId);
+          }
+
+          // 원본 메시지 (이미지 태그 포함) 저장
+          const originalMessage = `[image:${imagePath}]\n${textMessage}`;
+          messageStore.addUserMessage(conversationId, originalMessage);
+
+          // 브로드캐스트
+          const userMessageEvent = {
+            type: 'claude_event',
+            payload: {
+              workspaceId,
+              conversationId,
+              event: {
+                type: 'userMessage',
+                content: originalMessage,
+                timestamp: Date.now()
+              }
+            }
+          };
+          this.send({ ...userMessageEvent, broadcast: 'clients' });
+          this.localServer?.broadcast(userMessageEvent);
+
+          // Claude에 전달
+          let promptToSend = messageForClaude;
+          const claudeSessionId = conversation?.claudeSessionId || null;
+
+          if (conversation && !claudeSessionId) {
+            const personaContent = this.loadPersona(conversation.skillType || 'general');
+            if (personaContent) {
+              promptToSend = `<persona>\n${personaContent}\n</persona>\n\n${messageForClaude}`;
+            }
+          }
+
+          this.claudeManager.sendMessage(conversationId, promptToSend, { workingDir, claudeSessionId });
+        }
+      }
+      return;
+    }
+
+    if (type === 'blob_request') {
+      this.blobHandler.handleBlobRequest(message);
+      return;
+    }
+
     // ===== Claude 관련 =====
 
     if (type === 'claude_send') {
@@ -813,6 +899,22 @@ class Pylon {
           const workspace = workspaceStore.getWorkspace(workspaceId);
           workingDir = workspace?.workingDir;
           conversation = workspaceStore.getConversation(workspaceId, conversationId);
+        }
+
+        // 이미지 태그가 있는지 확인하고 처리
+        let displayMessage = userMessage;
+        let promptToSendBase = userMessage;
+
+        // [image:/path/to/file] 패턴 처리
+        const imageMatch = userMessage.match(/\[image:([^\]]+)\]/);
+        if (imageMatch) {
+          const imagePath = imageMatch[1];
+          const textPart = userMessage.replace(/\[image:[^\]]+\]\n?/, '').trim();
+
+          // Claude에 보내는 메시지는 이미지 경로를 명시적으로
+          promptToSendBase = textPart
+            ? `[첨부된 이미지: ${imagePath}]\n\n${textPart}`
+            : `[첨부된 이미지: ${imagePath}]\n\n이 이미지를 확인해주세요.`;
         }
 
         // 사용자 메시지 저장
@@ -835,13 +937,13 @@ class Pylon {
         this.localServer?.broadcast(userMessageEvent);
 
         // 첫 메시지인 경우 페르소나 지침 주입
-        let promptToSend = userMessage;
+        let promptToSend = promptToSendBase;
         const claudeSessionId = conversation?.claudeSessionId || null;
 
         if (conversation && !claudeSessionId) {
           const personaContent = this.loadPersona(conversation.skillType || 'general');
           if (personaContent) {
-            promptToSend = `<persona>\n${personaContent}\n</persona>\n\n${userMessage}`;
+            promptToSend = `<persona>\n${personaContent}\n</persona>\n\n${promptToSendBase}`;
           }
         }
 

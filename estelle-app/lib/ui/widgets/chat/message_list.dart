@@ -217,7 +217,10 @@ class _MessageListState extends ConsumerState<MessageList> {
                   child: Padding(
                     padding: const EdgeInsets.only(bottom: 4),
                     child: switch (message) {
-                      UserTextMessage msg => MessageBubble.user(content: msg.content),
+                      UserTextMessage msg => MessageBubble.user(
+                        content: msg.content,
+                        attachments: msg.attachments,
+                      ),
                       AssistantTextMessage msg => MessageBubble.assistant(content: msg.content),
                       ToolCallMessage msg => ToolCard(message: msg),
                       ResultInfoMessage msg => ResultInfo(message: msg),

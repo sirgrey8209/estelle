@@ -4,28 +4,70 @@ sealed class ClaudeMessage {
   int get timestamp;
 }
 
+/// 첨부 이미지 정보
+class AttachmentInfo {
+  final String id;
+  final String filename;
+  final String? localPath;
+  final String? remotePath;
+
+  const AttachmentInfo({
+    required this.id,
+    required this.filename,
+    this.localPath,
+    this.remotePath,
+  });
+}
+
 /// User text message
 class UserTextMessage implements ClaudeMessage {
   @override
   final String id;
   final String content;
+  final List<AttachmentInfo>? attachments;
   @override
   final int timestamp;
 
   const UserTextMessage({
     required this.id,
     required this.content,
+    this.attachments,
     required this.timestamp,
   });
+
+  /// 메시지 내용에서 이미지 경로 추출
+  static ({String text, List<AttachmentInfo> attachments}) parseContent(String rawContent) {
+    final attachments = <AttachmentInfo>[];
+    var text = rawContent;
+
+    // [image:/path/to/file.png] 패턴 파싱
+    final imageRegex = RegExp(r'\[image:([^\]]+)\]');
+    final matches = imageRegex.allMatches(rawContent);
+
+    for (final match in matches) {
+      final path = match.group(1)!;
+      final filename = path.split('/').last.split('\\').last;
+      attachments.add(AttachmentInfo(
+        id: 'img_${DateTime.now().millisecondsSinceEpoch}',
+        filename: filename,
+        localPath: path,
+      ));
+      text = text.replaceFirst(match.group(0)!, '');
+    }
+
+    return (text: text.trim(), attachments: attachments);
+  }
 
   UserTextMessage copyWith({
     String? id,
     String? content,
+    List<AttachmentInfo>? attachments,
     int? timestamp,
   }) {
     return UserTextMessage(
       id: id ?? this.id,
       content: content ?? this.content,
+      attachments: attachments ?? this.attachments,
       timestamp: timestamp ?? this.timestamp,
     );
   }

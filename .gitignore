@@ -49,6 +49,7 @@ estelle-mobile/.idea/
 estelle-pylon/logs/
 estelle-pylon/debug/
 estelle-pylon/messages/
+estelle-pylon/uploads/
 estelle-pylon/desks.json
 estelle-pylon/workspaces.json
 nul

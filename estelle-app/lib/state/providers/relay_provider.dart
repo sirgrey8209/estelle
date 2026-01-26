@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/services/relay_service.dart';
+import '../../data/services/blob_transfer_service.dart';
 import 'workspace_provider.dart';
 
 /// Loading state enum for connection overlay
@@ -12,6 +13,12 @@ enum LoadingState {
 /// RelayService singleton provider
 final relayServiceProvider = Provider<RelayService>((ref) {
   return relayService;
+});
+
+/// BlobTransferService provider
+final blobTransferServiceProvider = Provider<BlobTransferService>((ref) {
+  final relay = ref.watch(relayServiceProvider);
+  return BlobTransferService(relay);
 });
 
 /// Connection state provider

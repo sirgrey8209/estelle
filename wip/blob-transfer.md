@@ -310,13 +310,53 @@ Relay가 파일도 중계.
 
 ---
 
+## 구현 상태
+
+### Phase 1: 기본 이미지 업로드 (2026-01-26 완료)
+
+**선택: Option A (청크 메시지 방식)**
+
+#### 변경된 파일
+
+**estelle-shared:**
+- `index.js` / `index.d.ts`: Blob 메시지 타입 추가 (blob_start, blob_chunk, blob_end, blob_ack, blob_request)
+
+**estelle-app (Flutter):**
+- `pubspec.yaml`: image_picker, path, crypto, uuid, mime 패키지 추가
+- `lib/data/services/blob_transfer_service.dart`: Blob 송수신 서비스 (신규)
+- `lib/ui/widgets/chat/input_bar.dart`: + 버튼 및 이미지 선택 UI 추가
+- `lib/ui/widgets/chat/message_bubble.dart`: 이미지 표시 지원
+- `lib/data/models/claude_message.dart`: AttachmentInfo 추가
+- `lib/state/providers/relay_provider.dart`: BlobTransferService provider 추가
+
+**estelle-pylon:**
+- `src/blobHandler.js`: Blob 수신 및 저장 핸들러 (신규)
+- `src/index.js`: Blob 핸들러 연동, Claude 이미지 경로 전달
+
+**.gitignore:**
+- `estelle-pylon/uploads/` 추가
+
+#### 동작 방식
+
+1. 클라이언트에서 + 버튼 클릭 → 이미지 선택
+2. 이미지를 로컬 앱 폴더에 복사 (`Documents/estelle/images/`)
+3. 동일 PC면 경로만 전달, 아니면 Blob 청크로 전송
+4. Pylon에서 수신 후 `uploads/{conversationId}/` 에 저장
+5. Claude에 `[첨부된 이미지: /path/to/image]` 형식으로 메시지 전달
+6. Claude의 Read 도구로 이미지 읽기 가능
+
+---
+
 ## 다음 단계
 
-1. [ ] Option 선택 (A/B/C/D)
-2. [ ] WebSocket binary frame Relay 통과 테스트
-3. [ ] 프로토타입 구현 (Pylon → Client 이미지)
-4. [ ] Flutter 이미지 표시 UI
+1. [x] Option 선택 (A: 청크 메시지 방식)
+2. [ ] WebSocket binary frame Relay 통과 테스트 (현재 Base64 사용)
+3. [x] 프로토타입 구현 (Client → Pylon 이미지)
+4. [x] Flutter 이미지 표시 UI
 5. [ ] 에러 처리 및 재시도 로직
+6. [ ] Pylon → Client 이미지 전송 (역방향)
+7. [ ] 진행률 UI
+8. [ ] 압축 옵션
 
 ---
 
