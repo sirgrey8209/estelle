@@ -804,6 +804,16 @@ class Pylon {
       return;
     }
 
+    // ===== Debug Log (모바일 앱에서 전송) =====
+
+    if (type === 'debug_log') {
+      const { tag, message: logMsg, extra, timestamp } = payload || {};
+      const fromInfo = from ? `${from.name || from.deviceId}` : 'unknown';
+      const extraStr = extra ? ` | ${JSON.stringify(extra)}` : '';
+      this.log(`[APP:${fromInfo}] [${tag}] ${logMsg}${extraStr}`);
+      return;
+    }
+
     // ===== Blob 전송 =====
 
     if (type === 'blob_start') {

@@ -52,6 +52,7 @@ estelle/
 | [architecture-decisions.md](./architecture-decisions.md) | 설계 의도와 결정 이유 |
 | [entrypoints.md](./entrypoints.md) | 코드 진입점과 컴포넌트 계층 |
 | [logs.md](./logs.md) | 로그 파일 위치와 확인 방법 |
+| [mcp.md](./mcp.md) | MCP 서버 (배포 자동화) |
 
 ---
 

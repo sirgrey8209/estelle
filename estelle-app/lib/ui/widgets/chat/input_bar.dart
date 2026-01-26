@@ -189,12 +189,8 @@ class _InputBarState extends ConsumerState<InputBar> {
   Future<void> _pickImage(ImageSource source) async {
     try {
       final picker = ImagePicker();
-      final XFile? image = await picker.pickImage(
-        source: source,
-        maxWidth: 2048,
-        maxHeight: 2048,
-        imageQuality: 85,
-      );
+      // 원본 이미지 그대로 전송 (리사이징 없음)
+      final XFile? image = await picker.pickImage(source: source);
 
       if (image != null) {
         ref.read(attachedImageProvider.notifier).state = File(image.path);

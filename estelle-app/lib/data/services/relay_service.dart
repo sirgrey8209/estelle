@@ -472,6 +472,22 @@ class RelayService {
       },
     });
   }
+
+  // ============ Debug Log ============
+
+  /// 모바일 디버그 로그를 Pylon으로 전송
+  void sendDebugLog(String tag, String message, [Map<String, dynamic>? extra]) {
+    send({
+      'type': 'debug_log',
+      'broadcast': 'pylons',
+      'payload': {
+        'tag': tag,
+        'message': message,
+        'extra': extra,
+        'timestamp': DateTime.now().toIso8601String(),
+      },
+    });
+  }
 }
 
 // Singleton instance

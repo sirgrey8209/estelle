@@ -92,6 +92,12 @@ class BlobTransferService {
     _listenToMessages();
   }
 
+  /// 디버그 로그를 콘솔과 Pylon 모두에 출력
+  void _log(String tag, String message, [Map<String, dynamic>? extra]) {
+    print('[$tag] $message ${extra ?? ''}');
+    _relayService.sendDebugLog(tag, message, extra);
+  }
+
   Future<void> _initializeDirectories() async {
     final appDir = await getApplicationDocumentsDirectory();
     _imagesDir = path.join(appDir.path, 'estelle', 'images');
@@ -139,12 +145,12 @@ class BlobTransferService {
     try {
       // 디렉토리 초기화 대기
       if (_imagesDir == null) {
-        print('[BLOB] Waiting for directory initialization...');
+        _log('BLOB', 'Waiting for directory initialization...');
         await _initializeDirectories();
       }
 
       if (_imagesDir == null) {
-        print('[BLOB] ERROR: Images directory not initialized');
+        _log('BLOB', 'ERROR: Images directory not initialized');
         return null;
       }
 
@@ -152,7 +158,7 @@ class BlobTransferService {
       final filename = path.basename(file.path);
       final mimeType = lookupMimeType(filename) ?? 'application/octet-stream';
 
-      print('[BLOB] Starting upload: $filename (${bytes.length} bytes) to device $targetDeviceId');
+      _log('BLOB', 'Starting upload: $filename (${bytes.length} bytes) to device $targetDeviceId');
 
       // 로컬 이미지 폴더에 복사
       final timestamp = DateTime.now().millisecondsSinceEpoch;
@@ -184,7 +190,13 @@ class BlobTransferService {
       _transfers[blobId] = transfer;
 
       // blob_start 전송
-      print('[BLOB] Sending blob_start to deviceId: $targetDeviceId, blobId: $blobId, totalChunks: $totalChunks, sameDevice: $sameDevice');
+      _log('BLOB', 'Sending blob_start', {
+        'targetDeviceId': targetDeviceId,
+        'blobId': blobId,
+        'totalChunks': totalChunks,
+        'sameDevice': sameDevice,
+        'fileSize': bytes.length,
+      });
       _relayService.send({
         'type': 'blob_start',
         'to': {'deviceId': targetDeviceId, 'deviceType': 'pylon'},
@@ -224,8 +236,7 @@ class BlobTransferService {
 
       return blobId;
     } catch (e, stack) {
-      print('[BLOB] Upload error: $e');
-      print('[BLOB] Stack: $stack');
+      _log('BLOB', 'Upload error: $e\nStack: $stack');
       onError?.call('', e.toString());
       return null;
     }
@@ -235,7 +246,7 @@ class BlobTransferService {
     final transfer = _transfers[blobId];
     if (transfer == null) return;
 
-    print('[BLOB] Starting to send ${transfer.totalChunks} chunks for blobId: $blobId');
+    _log('BLOB', 'Starting to send ${transfer.totalChunks} chunks', {'blobId': blobId});
     for (int i = 0; i < transfer.totalChunks; i++) {
       final start = i * chunkSize;
       final end = (start + chunkSize > bytes.length) ? bytes.length : start + chunkSize;
@@ -260,7 +271,7 @@ class BlobTransferService {
       await Future.delayed(const Duration(milliseconds: 5));
     }
 
-    print('[BLOB] All chunks sent, sending blob_end for blobId: $blobId');
+    _log('BLOB', 'All chunks sent, sending blob_end', {'blobId': blobId});
 
     // blob_end 전송
     _relayService.send({
