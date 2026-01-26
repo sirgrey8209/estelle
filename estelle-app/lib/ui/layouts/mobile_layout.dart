@@ -34,14 +34,6 @@ class _MobileLayoutState extends ConsumerState<MobileLayout> {
   @override
   void initState() {
     super.initState();
-    // 워크스페이스/대화 선택 시 채팅 탭으로 전환
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.listen(selectedItemProvider, (previous, next) {
-        if (next != null && previous?.itemId != next.itemId && _currentPage == 0) {
-          _goToPage(1);
-        }
-      });
-    });
   }
 
   @override
@@ -144,6 +136,13 @@ class _MobileLayoutState extends ConsumerState<MobileLayout> {
 
   @override
   Widget build(BuildContext context) {
+    // 대화 선택 시 채팅 탭으로 자동 전환
+    ref.listen(selectedItemProvider, (previous, next) {
+      if (next != null && previous?.itemId != next.itemId && _currentPage == 0) {
+        _goToPage(1);
+      }
+    });
+
     final connectionAsync = ref.watch(connectionStateProvider);
     final isConnected = connectionAsync.valueOrNull ?? ref.read(relayServiceProvider).isConnected;
     final loadingState = ref.watch(loadingStateProvider);
@@ -259,10 +258,16 @@ class _TopBar extends StatelessWidget {
                 ? Row(
                     mainAxisSize: MainAxisSize.min,
                     children: pylons.isNotEmpty
-                        ? pylons.map((pylon) => Text(
-                            '${pylon.icon}✓',
-                            style: const TextStyle(fontSize: 12),
-                          )).toList()
+                        ? pylons.map((pylon) {
+                            // deviceId에 따른 기본 아이콘
+                            final icon = pylon.icon.isNotEmpty
+                                ? pylon.icon
+                                : (pylon.deviceId == 1 ? '🏢' : pylon.deviceId == 2 ? '🏠' : '💻');
+                            return Text(
+                              '$icon✓',
+                              style: const TextStyle(fontSize: 12),
+                            );
+                          }).toList()
                         : const [
                             Text('🏢✗🏠✗', style: TextStyle(fontSize: 12)),
                           ],

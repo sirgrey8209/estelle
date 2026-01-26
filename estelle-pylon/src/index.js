@@ -16,6 +16,7 @@ import folderManager from './folderManager.js';
 import taskManager from './taskManager.js';
 import workerManager from './workerManager.js';
 import ClaudeManager from './claudeManager.js';
+import FlutterDevManager from './flutterDevManager.js';
 import LocalServer from './localServer.js';
 import PidManager from './pidManager.js';
 import logger from './logger.js';
@@ -44,6 +45,7 @@ class Pylon {
     this.reconnectTimer = null;
     this.localServer = null;
     this.claudeManager = null;
+    this.flutterManager = null;
     this.fileSimulator = null;
     // 세션별 시청자 추적: Map<sessionId, Set<clientDeviceId>>
     this.sessionViewers = new Map();
@@ -95,6 +97,10 @@ class Pylon {
 
     this.claudeManager = new ClaudeManager((sessionId, event) => {
       this.sendClaudeEvent(sessionId, event);
+    });
+
+    this.flutterManager = new FlutterDevManager((workspaceId, event) => {
+      this.sendFlutterEvent(workspaceId, event);
     });
 
     this.localServer = new LocalServer(LOCAL_PORT);
@@ -734,6 +740,66 @@ class Pylon {
       return;
     }
 
+    // ===== Flutter 개발 서버 관련 =====
+
+    if (type === 'flutter_server_start') {
+      const { workspaceId, port } = payload || {};
+      const workspace = workspaceStore.getWorkspace(workspaceId);
+      if (workspace) {
+        const appDir = path.join(workspace.workingDir, 'estelle-app');
+        (async () => {
+          const result = await this.flutterManager.startServer(workspaceId, appDir, { port });
+          this.send({
+            type: 'flutter_server_start_result',
+            to: from?.deviceId,
+            payload: { deviceId: this.deviceId, ...result }
+          });
+        })();
+      }
+      return;
+    }
+
+    if (type === 'flutter_server_stop') {
+      const { workspaceId } = payload || {};
+      if (workspaceId) {
+        const result = this.flutterManager.stopServer(workspaceId);
+        this.send({
+          type: 'flutter_server_stop_result',
+          to: from?.deviceId,
+          payload: { deviceId: this.deviceId, ...result }
+        });
+      }
+      return;
+    }
+
+    if (type === 'flutter_hot_reload') {
+      const { workspaceId, restart } = payload || {};
+      if (workspaceId) {
+        const result = restart
+          ? this.flutterManager.hotRestart(workspaceId)
+          : this.flutterManager.hotReload(workspaceId);
+        this.send({
+          type: 'flutter_hot_reload_result',
+          to: from?.deviceId,
+          payload: { deviceId: this.deviceId, ...result }
+        });
+      }
+      return;
+    }
+
+    if (type === 'flutter_server_status') {
+      const { workspaceId } = payload || {};
+      if (workspaceId) {
+        const status = this.flutterManager.getServerStatus(workspaceId);
+        this.send({
+          type: 'flutter_server_status_result',
+          to: from?.deviceId,
+          payload: { deviceId: this.deviceId, ...status }
+        });
+      }
+      return;
+    }
+
     // ===== Claude 관련 =====
 
     if (type === 'claude_send') {
@@ -1168,6 +1234,25 @@ class Pylon {
         broadcast: 'clients'
       });
     }
+  }
+
+  // ============ Flutter 이벤트 전송 ============
+
+  sendFlutterEvent(workspaceId, event) {
+    this.log(`[Flutter] Event: ${event.type} for workspace ${workspaceId}`);
+
+    const message = {
+      type: 'flutter_event',
+      payload: {
+        deviceId: this.deviceId,
+        workspaceId,
+        event
+      }
+    };
+
+    // 모든 클라이언트에게 브로드캐스트
+    this.send({ ...message, broadcast: 'clients' });
+    this.localServer?.broadcast(message);
   }
 
   /**
