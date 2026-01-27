@@ -13,8 +13,8 @@ class AppTheme {
   }
 
   static ThemeData get darkTheme {
-    // Noto Color Emoji 폰트 미리 로드
-    GoogleFonts.notoColorEmoji();
+    // Noto Color Emoji 폰트 로딩 비활성화 (블로킹 원인)
+    // GoogleFonts.notoColorEmoji();
 
     return ThemeData(
       useMaterial3: true,

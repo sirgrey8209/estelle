@@ -51,6 +51,8 @@ class Pylon {
     this.blobHandler = null;
     // 세션별 시청자 추적: Map<sessionId, Set<clientDeviceId>>
     this.sessionViewers = new Map();
+    // 대화별 pending 이미지: Map<conversationId, Array<{path, filename}>>
+    this.pendingImages = new Map();
     // Claude 누적 사용량
     this.claudeUsage = {
       totalCostUsd: 0,
@@ -838,6 +840,8 @@ class Pylon {
         const { conversationId, deskId: workspaceId } = context;
         const blobId = payload?.blobId;
 
+        const imageFilename = path.basename(imagePath);
+
         // 클라이언트에 업로드 완료 알림 (Pylon 경로 포함)
         this.send({
           type: 'blob_upload_complete',
@@ -845,36 +849,41 @@ class Pylon {
           payload: {
             blobId,
             path: imagePath,
+            filename: imageFilename,
             conversationId,
             workspaceId,
           }
         });
 
-        // 히스토리에 이미지 메시지 저장 (파일명만 저장)
-        if (conversationId) {
-          const imageFilename = path.basename(imagePath);
-          const originalMessage = `[image:${imageFilename}]`;
-          messageStore.addUserMessage(conversationId, originalMessage);
+        // 히스토리에 이미지 메시지 저장
+        const imageMessage = `[image:${imageFilename}]`;
+        messageStore.addUserMessage(conversationId, imageMessage);
 
-          // 브로드캐스트 (다른 클라이언트에게 알림)
-          const userMessageEvent = {
-            type: 'claude_event',
-            payload: {
-              workspaceId,
-              conversationId,
-              event: {
-                type: 'userMessage',
-                content: originalMessage,
-                timestamp: Date.now()
-              }
+        // 브로드캐스트 (다른 클라이언트에게 이미지 버블 표시)
+        const userMessageEvent = {
+          type: 'claude_event',
+          payload: {
+            workspaceId,
+            conversationId,
+            event: {
+              type: 'userMessage',
+              content: imageMessage,
+              timestamp: Date.now()
             }
-          };
-          this.send({ ...userMessageEvent, broadcast: 'clients' });
-          this.localServer?.broadcast(userMessageEvent);
-        }
+          }
+        };
+        this.send({ ...userMessageEvent, broadcast: 'clients' });
+        this.localServer?.broadcast(userMessageEvent);
 
-        // 참고: Claude로 메시지 전달은 하지 않음
-        // 클라이언트가 다음 메시지 전송 시 이미지 경로를 포함하여 보냄
+        // pending 이미지로 저장 (다음 claude_send에서 Claude에게 전달)
+        if (!this.pendingImages.has(conversationId)) {
+          this.pendingImages.set(conversationId, []);
+        }
+        this.pendingImages.get(conversationId).push({
+          path: imagePath,
+          filename: imageFilename
+        });
+        console.log(`[IMAGE] Pending image added for ${conversationId}: ${imageFilename}`);
       }
       return;
     }
@@ -899,26 +908,10 @@ class Pylon {
           conversation = workspaceStore.getConversation(workspaceId, conversationId);
         }
 
-        // 이미지 태그가 있는지 확인하고 처리
-        let displayMessage = userMessage;
-        let promptToSendBase = userMessage;
-
-        // [image:/path/to/file] 패턴 처리
-        const imageMatch = userMessage.match(/\[image:([^\]]+)\]/);
-        if (imageMatch) {
-          const imagePath = imageMatch[1];
-          const textPart = userMessage.replace(/\[image:[^\]]+\]\n?/, '').trim();
-
-          // Claude에 보내는 메시지는 이미지 경로를 명시적으로
-          promptToSendBase = textPart
-            ? `[첨부된 이미지: ${imagePath}]\n\n${textPart}`
-            : `[첨부된 이미지: ${imagePath}]\n\n이 이미지를 확인해주세요.`;
-        }
-
-        // 사용자 메시지 저장
+        // 사용자 메시지 저장 (텍스트만 - 이미지 버블은 blob_end에서 이미 저장됨)
         messageStore.addUserMessage(conversationId, userMessage);
 
-        // 사용자 메시지 브로드캐스트 (다른 클라이언트들에게 알림)
+        // 사용자 메시지 브로드캐스트 (텍스트만)
         const userMessageEvent = {
           type: 'claude_event',
           payload: {
@@ -933,6 +926,23 @@ class Pylon {
         };
         this.send({ ...userMessageEvent, broadcast: 'clients' });
         this.localServer?.broadcast(userMessageEvent);
+
+        // Claude에게 보낼 프롬프트 구성
+        // - pending 이미지가 있으면 경로 첨부
+        let promptToSendBase = userMessage;
+        const pendingImages = this.pendingImages.get(conversationId) || [];
+
+        if (pendingImages.length > 0) {
+          // 이미지 경로들을 프롬프트 앞에 첨부
+          const imageAttachments = pendingImages
+            .map(img => `[첨부 이미지: ${img.path}]`)
+            .join('\n');
+          promptToSendBase = `${imageAttachments}\n\n${userMessage}`;
+          console.log(`[IMAGE] Attaching ${pendingImages.length} images to Claude prompt`);
+
+          // pending 이미지 클리어
+          this.pendingImages.delete(conversationId);
+        }
 
         // 첫 메시지인 경우 페르소나 지침 주입
         let promptToSend = promptToSendBase;
@@ -975,9 +985,9 @@ class Pylon {
     }
 
     if (type === 'claude_set_permission_mode') {
-      const { mode } = payload || {};
-      if (mode) {
-        ClaudeManager.setPermissionMode(mode);
+      const { conversationId, mode } = payload || {};
+      if (conversationId && mode) {
+        ClaudeManager.setPermissionMode(conversationId, mode);
       }
       return;
     }

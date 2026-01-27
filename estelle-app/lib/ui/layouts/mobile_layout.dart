@@ -136,9 +136,9 @@ class _MobileLayoutState extends ConsumerState<MobileLayout> {
 
   @override
   Widget build(BuildContext context) {
-    // 대화 선택 시 채팅 탭으로 자동 전환
-    ref.listen(selectedItemProvider, (previous, next) {
-      if (next != null && previous?.itemId != next.itemId && _currentPage == 0) {
+    // 대화 탭 이벤트 시 채팅 탭으로 자동 전환 (같은 대화를 다시 눌러도 이동)
+    ref.listen(conversationTapEventProvider, (previous, next) {
+      if (next != null && _currentPage == 0) {
         _goToPage(1);
       }
     });

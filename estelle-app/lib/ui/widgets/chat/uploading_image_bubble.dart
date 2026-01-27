@@ -1,10 +1,11 @@
-import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/constants/colors.dart';
 import '../../../state/providers/image_upload_provider.dart';
 import '../../../state/providers/relay_provider.dart';
 import '../../../data/services/blob_transfer_service.dart';
+import '../../../data/services/image_cache_service.dart' as cache;
 
 /// 업로드 중인 이미지 버블
 class UploadingImageBubble extends ConsumerWidget {
@@ -134,13 +135,14 @@ class UploadingImageBubble extends ConsumerWidget {
   }
 
   Widget _buildImagePreview() {
-    final file = File(upload.localPath);
+    // 캐시에서 이미지 가져오기
+    final Uint8List? bytes = cache.imageCache.get(upload.filename);
 
-    if (file.existsSync()) {
+    if (bytes != null) {
       return ClipRRect(
         borderRadius: BorderRadius.circular(6),
-        child: Image.file(
-          file,
+        child: Image.memory(
+          bytes,
           width: 60,
           height: 60,
           fit: BoxFit.cover,

@@ -409,6 +409,8 @@ class _ConversationItemState extends ConsumerState<_ConversationItem> with Singl
           ref.read(selectedItemProvider.notifier).selectConversation(
             widget.deviceId, widget.workspaceId, widget.conversation.conversationId,
           );
+          // 모바일에서 같은 대화를 다시 눌러도 채팅 탭으로 이동하기 위한 이벤트
+          ref.read(conversationTapEventProvider.notifier).state = DateTime.now();
         }
       },
       child: Container(

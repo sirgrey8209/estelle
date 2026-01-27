@@ -214,9 +214,12 @@ class ClaudeMessagesNotifier extends StateNotifier<List<ClaudeMessage>> {
       final id = '$timestamp-${messages.length}';
 
       if (role == 'user' && msgType == 'text') {
+        final rawContent = msg['content'] as String? ?? '';
+        final parsed = UserTextMessage.parseContent(rawContent);
         messages.add(UserTextMessage(
           id: id,
-          content: msg['content'] as String? ?? '',
+          content: parsed.text,
+          attachments: parsed.attachments.isNotEmpty ? parsed.attachments : null,
           timestamp: timestamp,
         ));
       } else if (role == 'assistant' && msgType == 'text') {
@@ -267,13 +270,15 @@ class ClaudeMessagesNotifier extends StateNotifier<List<ClaudeMessage>> {
     switch (eventType) {
       case 'userMessage':
         _ref.read(sendingMessageProvider.notifier).state = null;
-        final content = event['content'] as String? ?? '';
+        final rawContent = event['content'] as String? ?? '';
+        final parsed = UserTextMessage.parseContent(rawContent);
         final timestamp = (event['timestamp'] as num?)?.toInt() ?? now;
         state = [
           ...state,
           UserTextMessage(
             id: '$timestamp-user',
-            content: content,
+            content: parsed.text,
+            attachments: parsed.attachments.isNotEmpty ? parsed.attachments : null,
             timestamp: timestamp,
           ),
         ];
@@ -449,12 +454,14 @@ class ClaudeMessagesNotifier extends StateNotifier<List<ClaudeMessage>> {
 
     switch (eventType) {
       case 'userMessage':
-        final content = event['content'] as String? ?? '';
+        final rawContent = event['content'] as String? ?? '';
+        final parsed = UserTextMessage.parseContent(rawContent);
         final timestamp = (event['timestamp'] as num?)?.toInt() ?? now;
         final saved = _conversationMessagesCache[conversationId]?.toList() ?? [];
         saved.add(UserTextMessage(
           id: '$timestamp-user',
-          content: content,
+          content: parsed.text,
+          attachments: parsed.attachments.isNotEmpty ? parsed.attachments : null,
           timestamp: timestamp,
         ));
         _conversationMessagesCache[conversationId] = saved;
@@ -531,11 +538,13 @@ class ClaudeMessagesNotifier extends StateNotifier<List<ClaudeMessage>> {
 
   void addUserMessage(String content) {
     final now = DateTime.now().millisecondsSinceEpoch;
+    final parsed = UserTextMessage.parseContent(content);
     state = [
       ...state,
       UserTextMessage(
         id: '$now-user',
-        content: content,
+        content: parsed.text,
+        attachments: parsed.attachments.isNotEmpty ? parsed.attachments : null,
         timestamp: now,
       ),
     ];

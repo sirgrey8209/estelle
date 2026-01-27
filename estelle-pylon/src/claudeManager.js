@@ -21,8 +21,8 @@ import path from 'path';
 
 const LOG_DIR = path.join(process.cwd(), 'logs');
 
-// 퍼미션 모드 (전역)
-let permissionMode = 'default';
+// 대화별 퍼미션 모드 (conversationId -> mode)
+const permissionModes = new Map();
 
 /**
  * Claude Manager 클래스
@@ -84,14 +84,15 @@ class ClaudeManager {
   ];
 
   /**
-   * 퍼미션 모드 설정
+   * 퍼미션 모드 설정 (대화별)
    */
-  static setPermissionMode(mode) {
-    permissionMode = mode;
+  static setPermissionMode(conversationId, mode) {
+    permissionModes.set(conversationId, mode);
+    console.log(`[ClaudeManager] Permission mode for ${conversationId}: ${mode}`);
   }
 
-  static getPermissionMode() {
-    return permissionMode;
+  static getPermissionMode(conversationId) {
+    return permissionModes.get(conversationId) || 'default';
   }
 
   /**
@@ -175,6 +176,7 @@ class ClaudeManager {
       cwd: sessionInfo.workingDir,
       abortController,
       includePartialMessages: true,
+      allowedTools: ['Skill'],  // Skills 자동 로드 활성화
       canUseTool: async (toolName, input) => {
         return this.handlePermission(sessionId, toolName, input);
       }
@@ -426,14 +428,17 @@ class ClaudeManager {
    * 권한 핸들러
    */
   async handlePermission(sessionId, toolName, input) {
+    // 해당 대화의 퍼미션 모드 가져오기
+    const mode = ClaudeManager.getPermissionMode(sessionId);
+
     // bypassPermissions: 모든 도구 자동 허용 (AskUserQuestion 제외)
-    if (permissionMode === 'bypassPermissions' && toolName !== 'AskUserQuestion') {
+    if (mode === 'bypassPermissions' && toolName !== 'AskUserQuestion') {
       console.log(`[ClaudeManager] Bypass mode - auto-allow: ${toolName}`);
       return { behavior: 'allow', updatedInput: input };
     }
 
     // acceptEdits: Edit, Write, Bash 등 자동 허용
-    if (permissionMode === 'acceptEdits') {
+    if (mode === 'acceptEdits') {
       const editTools = ['Edit', 'Write', 'Bash', 'NotebookEdit'];
       if (editTools.includes(toolName)) {
         console.log(`[ClaudeManager] AcceptEdits mode - auto-allow: ${toolName}`);

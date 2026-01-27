@@ -109,8 +109,8 @@ class _ChatHeader extends ConsumerWidget {
   }
 }
 
-/// 퍼미션 모드 Provider (글로벌)
-final permissionModeProvider = StateProvider<String>((ref) => 'default');
+/// 대화별 퍼미션 모드 Provider (conversationId -> mode)
+final permissionModeProvider = StateProvider.family<String, String>((ref, conversationId) => 'default');
 
 class _SessionMenuButton extends ConsumerWidget {
   final WorkspaceInfo workspace;
@@ -136,18 +136,25 @@ class _SessionMenuButton extends ConsumerWidget {
   };
 
   void _cyclePermissionMode(WidgetRef ref) {
-    final currentMode = ref.read(permissionModeProvider);
+    if (conversation == null) return;
+    final conversationId = conversation!.conversationId;
+    final currentMode = ref.read(permissionModeProvider(conversationId));
     final currentIndex = _permissionModes.indexOf(currentMode);
     final nextIndex = (currentIndex + 1) % _permissionModes.length;
     final nextMode = _permissionModes[nextIndex];
 
-    ref.read(permissionModeProvider.notifier).state = nextMode;
-    ref.read(relayServiceProvider).setPermissionMode(nextMode);
+    ref.read(permissionModeProvider(conversationId).notifier).state = nextMode;
+    ref.read(relayServiceProvider).setPermissionMode(
+      workspace.deviceId,
+      conversationId,
+      nextMode,
+    );
   }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final currentMode = ref.watch(permissionModeProvider);
+    final conversationId = conversation?.conversationId ?? '';
+    final currentMode = ref.watch(permissionModeProvider(conversationId));
 
     return Row(
       mainAxisSize: MainAxisSize.min,

@@ -286,13 +286,15 @@ class RelayService {
     });
   }
 
-  /// 퍼미션 모드 변경 (모든 Pylon에 브로드캐스트)
+  /// 퍼미션 모드 변경 (특정 대화에 적용)
+  /// [deviceId] - Pylon deviceId
+  /// [conversationId] - 대화 ID
   /// [mode] - 'default', 'acceptEdits', 'bypassPermissions'
-  void setPermissionMode(String mode) {
+  void setPermissionMode(int deviceId, String conversationId, String mode) {
     send({
       'type': 'claude_set_permission_mode',
-      'broadcast': 'pylons',
-      'payload': {'mode': mode},
+      'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
+      'payload': {'conversationId': conversationId, 'mode': mode},
     });
   }
 

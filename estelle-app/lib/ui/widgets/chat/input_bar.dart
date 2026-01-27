@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -12,8 +11,11 @@ import '../../../state/providers/relay_provider.dart';
 import '../../../state/providers/image_upload_provider.dart';
 import '../../../data/services/blob_transfer_service.dart';
 
-/// 첨부 이미지 상태
-final attachedImageProvider = StateProvider<File?>((ref) => null);
+/// 첨부 이미지 상태 (XFile - 모든 플랫폼 호환)
+final attachedImageProvider = StateProvider<XFile?>((ref) => null);
+
+/// 첨부 이미지 바이트 캐시 (미리보기용)
+final attachedImageBytesProvider = StateProvider<Uint8List?>((ref) => null);
 
 class InputBar extends ConsumerStatefulWidget {
   const InputBar({super.key});
@@ -40,11 +42,11 @@ class _InputBarState extends ConsumerState<InputBar> {
     final blobService = ref.read(blobTransferServiceProvider);
 
     // 업로드 완료 리스너
-    _completeSubscription = blobService.completeStream.listen((event) {
-      // 업로드 완료 시 Provider 업데이트
+    _completeSubscription = blobService.uploadCompleteStream.listen((event) {
+      // 업로드 완료 시 Provider 업데이트 (filename으로 저장 - 캐시 키와 동일)
       ref.read(imageUploadProvider.notifier).completeUpload(
         event.blobId,
-        event.pylonPath,
+        event.filename,
       );
 
       // 큐에 대기 중인 메시지가 있으면 전송
@@ -70,7 +72,7 @@ class _InputBarState extends ConsumerState<InputBar> {
         // 프로그레스 업데이트
         ref.read(imageUploadProvider.notifier).updateProgress(
           transfer.blobId,
-          transfer.sentChunks,
+          transfer.processedChunks,
         );
       }
     });
@@ -95,21 +97,29 @@ class _InputBarState extends ConsumerState<InputBar> {
     }
   }
 
-  bool get _isDesktop {
-    if (kIsWeb) return false;
-    return Platform.isWindows || Platform.isMacOS || Platform.isLinux;
+  /// 데스크탑 레이아웃 여부 (화면 너비 기준)
+  bool get _isDesktopLayout {
+    final screenWidth = MediaQuery.of(context).size.width;
+    return screenWidth >= 600;
   }
 
-  bool get _isMobile {
+  /// 모바일 플랫폼 여부 (웹 제외)
+  bool get _isMobilePlatform {
     if (kIsWeb) return false;
-    return Platform.isAndroid || Platform.isIOS;
+    return defaultTargetPlatform == TargetPlatform.android ||
+           defaultTargetPlatform == TargetPlatform.iOS;
+  }
+
+  /// 데스크탑 플랫폼 여부 (웹 제외)
+  bool get _isDesktopPlatform {
+    if (kIsWeb) return false;
+    return defaultTargetPlatform == TargetPlatform.windows ||
+           defaultTargetPlatform == TargetPlatform.macOS ||
+           defaultTargetPlatform == TargetPlatform.linux;
   }
 
   Future<void> _showAttachMenu() async {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final isDesktopLayout = screenWidth >= 600;
-
-    if (isDesktopLayout || _isDesktop) {
+    if (_isDesktopLayout || _isDesktopPlatform) {
       _showDesktopMenu();
     } else {
       _showMobileSheet();
@@ -170,7 +180,7 @@ class _InputBarState extends ConsumerState<InputBar> {
                   _pickImage(ImageSource.gallery);
                 },
               ),
-              if (_isMobile)
+              if (_isMobilePlatform)
                 ListTile(
                   leading: const Icon(Icons.camera_alt, color: NordColors.nord9),
                   title: const Text('카메라 촬영', style: TextStyle(color: NordColors.nord5)),
@@ -189,11 +199,15 @@ class _InputBarState extends ConsumerState<InputBar> {
   Future<void> _pickImage(ImageSource source) async {
     try {
       final picker = ImagePicker();
-      // 원본 이미지 그대로 전송 (리사이징 없음)
       final XFile? image = await picker.pickImage(source: source);
 
       if (image != null) {
-        ref.read(attachedImageProvider.notifier).state = File(image.path);
+        // XFile 저장
+        ref.read(attachedImageProvider.notifier).state = image;
+
+        // 미리보기용 바이트 로드
+        final bytes = await image.readAsBytes();
+        ref.read(attachedImageBytesProvider.notifier).state = bytes;
       }
     } catch (e) {
       print('Image pick error: $e');
@@ -210,6 +224,7 @@ class _InputBarState extends ConsumerState<InputBar> {
 
   void _removeAttachment() {
     ref.read(attachedImageProvider.notifier).state = null;
+    ref.read(attachedImageBytesProvider.notifier).state = null;
   }
 
   Future<void> _send() async {
@@ -243,6 +258,7 @@ class _InputBarState extends ConsumerState<InputBar> {
       await _startImageUpload(attachedImage, text);
       _controller.clear();
       ref.read(attachedImageProvider.notifier).state = null;
+      ref.read(attachedImageBytesProvider.notifier).state = null;
     } else {
       // 텍스트만 있는 경우
       _sendTextMessage(text);
@@ -250,21 +266,25 @@ class _InputBarState extends ConsumerState<InputBar> {
     }
   }
 
-  Future<void> _startImageUpload(File image, String text) async {
+  Future<void> _startImageUpload(XFile image, String text) async {
     final selectedItem = ref.read(selectedItemProvider);
     if (selectedItem == null) return;
 
     final blobService = ref.read(blobTransferServiceProvider);
-    final sameDevice = _isDesktop;
+
+    // XFile에서 바이트 읽기 (모든 플랫폼 호환)
+    final bytes = await image.readAsBytes();
+    final filename = image.name;
 
     // 업로드 시작
-    final blobId = await blobService.uploadImage(
-      file: image,
+    final blobId = await blobService.uploadImageBytes(
+      bytes: bytes,
+      filename: filename,
       targetDeviceId: selectedItem.deviceId,
-      deskId: selectedItem.workspaceId,
+      workspaceId: selectedItem.workspaceId,
       conversationId: selectedItem.itemId,
       message: text.isEmpty ? null : text,
-      sameDevice: sameDevice,
+      sameDevice: _isDesktopPlatform,  // 데스크탑이면 sameDevice 플래그 (내부에서 비활성화됨)
     );
 
     if (blobId != null) {
@@ -273,7 +293,7 @@ class _InputBarState extends ConsumerState<InputBar> {
         // Provider에 업로드 정보 등록
         ref.read(imageUploadProvider.notifier).startUpload(
           blobId: blobId,
-          localPath: transfer.localPath ?? '',
+          localPath: '',  // 캐시 기반이므로 로컬 경로 없음
           filename: transfer.filename,
           totalChunks: transfer.totalChunks,
           conversationId: selectedItem.itemId,
@@ -346,6 +366,7 @@ class _InputBarState extends ConsumerState<InputBar> {
     final claudeState = ref.watch(claudeStateProvider);
     final isWorking = claudeState == 'working';
     final attachedImage = ref.watch(attachedImageProvider);
+    final attachedImageBytes = ref.watch(attachedImageBytesProvider);
     final uploadState = ref.watch(imageUploadProvider);
     final isBusy = uploadState.isBusy;
 
@@ -353,7 +374,7 @@ class _InputBarState extends ConsumerState<InputBar> {
       mainAxisSize: MainAxisSize.min,
       children: [
         // 첨부 이미지 미리보기
-        if (attachedImage != null)
+        if (attachedImage != null && attachedImageBytes != null)
           Container(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
             decoration: const BoxDecoration(
@@ -368,8 +389,8 @@ class _InputBarState extends ConsumerState<InputBar> {
                   children: [
                     ClipRRect(
                       borderRadius: BorderRadius.circular(8),
-                      child: Image.file(
-                        attachedImage,
+                      child: Image.memory(
+                        attachedImageBytes,
                         width: 60,
                         height: 60,
                         fit: BoxFit.cover,
@@ -399,7 +420,7 @@ class _InputBarState extends ConsumerState<InputBar> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    attachedImage.path.split('/').last,
+                    attachedImage.name,
                     style: const TextStyle(
                       color: NordColors.nord4,
                       fontSize: 12,
@@ -439,10 +460,7 @@ class _InputBarState extends ConsumerState<InputBar> {
               Expanded(
                 child: Focus(
                   onKeyEvent: (node, event) {
-                    final screenWidth = MediaQuery.of(context).size.width;
-                    final isDesktopLayout = screenWidth >= 600;
-
-                    if (isDesktopLayout &&
+                    if (_isDesktopLayout &&
                         event is KeyDownEvent &&
                         event.logicalKey == LogicalKeyboardKey.enter &&
                         !HardwareKeyboard.instance.isShiftPressed &&

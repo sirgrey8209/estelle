@@ -20,6 +20,9 @@ List<dynamic>? _safeList(dynamic value) {
 /// 현재 액션 UI가 열린 항목 ID (한 번에 하나만 열림)
 final activeActionItemProvider = StateProvider<String?>((ref) => null);
 
+/// 대화 탭 이벤트 (모바일에서 같은 대화를 다시 눌러도 채팅 탭으로 이동하기 위함)
+final conversationTapEventProvider = StateProvider<DateTime?>((ref) => null);
+
 /// 선택 가능한 항목 타입
 enum SelectedItemType { conversation, task }
 

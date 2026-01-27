@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/constants/colors.dart';
 import 'claude_usage_card.dart';
-import 'permission_mode_section.dart';
 import 'deploy_section.dart';
 import 'app_update_section.dart';
 
@@ -20,8 +19,6 @@ class SettingsScreen extends ConsumerWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             ClaudeUsageCard(),
-            SizedBox(height: 16),
-            PermissionModeSection(),
             SizedBox(height: 16),
             DeploySection(),
             SizedBox(height: 16),
@@ -44,8 +41,6 @@ class SettingsContent extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         ClaudeUsageCard(),
-        SizedBox(height: 16),
-        PermissionModeSection(),
         SizedBox(height: 16),
         DeploySection(),
         SizedBox(height: 16),

@@ -1,9 +1,11 @@
-import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:path/path.dart' as p;
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/constants/colors.dart';
 import '../../../data/models/claude_message.dart';
+import '../../../data/services/image_cache_service.dart' as cache;
+import '../../../state/providers/relay_provider.dart';
+import '../../../state/providers/workspace_provider.dart';
 
 class MessageBubble extends StatelessWidget {
   final Widget child;
@@ -216,75 +218,80 @@ class _UserContent extends StatelessWidget {
   }
 }
 
-/// 첨부 이미지 위젯
-class _AttachmentImage extends StatefulWidget {
+/// 첨부 이미지 위젯 (캐시 기반 - 모든 플랫폼 호환)
+class _AttachmentImage extends ConsumerStatefulWidget {
   final AttachmentInfo attachment;
 
   const _AttachmentImage({required this.attachment});
 
   @override
-  State<_AttachmentImage> createState() => _AttachmentImageState();
+  ConsumerState<_AttachmentImage> createState() => _AttachmentImageState();
 }
 
-class _AttachmentImageState extends State<_AttachmentImage> {
-  File? _imageFile;
+class _AttachmentImageState extends ConsumerState<_AttachmentImage> {
+  Uint8List? _imageBytes;
   bool _isLoading = true;
+  bool _downloadRequested = false;
 
   @override
   void initState() {
     super.initState();
-    _findLocalImage();
+    _loadImage();
   }
 
-  Future<void> _findLocalImage() async {
-    final attachment = widget.attachment;
+  void _loadImage() {
+    final filename = widget.attachment.filename;
 
-    // 먼저 localPath로 시도
-    if (attachment.localPath != null) {
-      final file = File(attachment.localPath!);
-      if (await file.exists()) {
-        if (mounted) {
-          setState(() {
-            _imageFile = file;
-            _isLoading = false;
-          });
-        }
-        return;
+    // 캐시에서 먼저 확인
+    final cached = cache.imageCache.get(filename);
+    if (cached != null) {
+      if (mounted) {
+        setState(() {
+          _imageBytes = cached;
+          _isLoading = false;
+        });
       }
+      return;
     }
 
-    // localPath가 없거나 파일이 없으면 images 폴더에서 검색
-    try {
-      final appDir = await getApplicationDocumentsDirectory();
-      final imagesDir = Directory(p.join(appDir.path, 'estelle', 'images'));
-
-      if (await imagesDir.exists()) {
-        await for (final entity in imagesDir.list()) {
-          if (entity is File) {
-            final basename = p.basename(entity.path);
-            // 파일명이 일치하거나 타임스탬프_파일명 형식으로 끝나는지 확인
-            if (basename == attachment.filename ||
-                basename.endsWith('_${attachment.filename}')) {
-              if (mounted) {
-                setState(() {
-                  _imageFile = entity;
-                  _isLoading = false;
-                });
-              }
-              return;
-            }
-          }
-        }
-      }
-    } catch (e) {
-      // 검색 실패 시 무시
-    }
-
+    // 캐시에 없으면 로딩 상태 표시
     if (mounted) {
       setState(() {
         _isLoading = false;
       });
     }
+  }
+
+  void _requestDownload() {
+    if (_downloadRequested) return;
+    _downloadRequested = true;
+
+    final blobService = ref.read(blobTransferServiceProvider);
+    final selectedItem = ref.read(selectedItemProvider);
+
+    if (selectedItem == null) {
+      return;
+    }
+
+    // 다운로드 요청
+    blobService.requestImage(
+      targetDeviceId: selectedItem.deviceId,
+      conversationId: selectedItem.itemId,
+      filename: widget.attachment.filename,
+    );
+
+    // 다운로드 완료 리스닝
+    blobService.downloadCompleteStream.listen((event) {
+      if (event.filename == widget.attachment.filename && mounted) {
+        setState(() {
+          _imageBytes = event.bytes;
+        });
+      }
+    });
+
+    setState(() {
+      _isLoading = true;
+    });
   }
 
   @override
@@ -293,9 +300,9 @@ class _AttachmentImageState extends State<_AttachmentImage> {
       return _buildLoadingPlaceholder();
     }
 
-    if (_imageFile != null) {
+    if (_imageBytes != null) {
       return GestureDetector(
-        onTap: () => _showFullImage(context, _imageFile!),
+        onTap: () => _showFullImage(context, _imageBytes!),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(8),
           child: ConstrainedBox(
@@ -303,8 +310,8 @@ class _AttachmentImageState extends State<_AttachmentImage> {
               maxWidth: 200,
               maxHeight: 200,
             ),
-            child: Image.file(
-              _imageFile!,
+            child: Image.memory(
+              _imageBytes!,
               fit: BoxFit.cover,
               errorBuilder: (context, error, stack) {
                 return _buildPlaceholder();
@@ -315,8 +322,8 @@ class _AttachmentImageState extends State<_AttachmentImage> {
       );
     }
 
-    // 파일이 없으면 플레이스홀더 표시 (다운로드 필요)
-    return _buildPlaceholder();
+    // 캐시에 없으면 다운로드 버튼 표시
+    return _buildDownloadPlaceholder();
   }
 
   Widget _buildLoadingPlaceholder() {
@@ -341,6 +348,37 @@ class _AttachmentImageState extends State<_AttachmentImage> {
     );
   }
 
+  Widget _buildDownloadPlaceholder() {
+    return GestureDetector(
+      onTap: _requestDownload,
+      child: Container(
+        width: 120,
+        height: 80,
+        decoration: BoxDecoration(
+          color: NordColors.nord2,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: NordColors.nord3),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.download, color: NordColors.nord4, size: 24),
+            const SizedBox(height: 4),
+            Text(
+              widget.attachment.filename,
+              style: const TextStyle(
+                fontSize: 10,
+                color: NordColors.nord4,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildPlaceholder() {
     return Container(
       width: 120,
@@ -353,7 +391,7 @@ class _AttachmentImageState extends State<_AttachmentImage> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.image, color: NordColors.nord4, size: 24),
+          const Icon(Icons.broken_image, color: NordColors.nord11, size: 24),
           const SizedBox(height: 4),
           Text(
             widget.attachment.filename,
@@ -369,7 +407,7 @@ class _AttachmentImageState extends State<_AttachmentImage> {
     );
   }
 
-  void _showFullImage(BuildContext context, File file) {
+  void _showFullImage(BuildContext context, Uint8List bytes) {
     showDialog(
       context: context,
       builder: (context) => Dialog(
@@ -379,7 +417,7 @@ class _AttachmentImageState extends State<_AttachmentImage> {
             InteractiveViewer(
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(8),
-                child: Image.file(file),
+                child: Image.memory(bytes),
               ),
             ),
             Positioned(
