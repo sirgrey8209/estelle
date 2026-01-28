@@ -25,7 +25,9 @@ class FileDownloadNotifier extends StateNotifier<Map<String, FileDownloadState>>
     blobService.downloadCompleteStream.listen((event) {
       final filename = event.filename;
       if (state.containsKey(filename)) {
-        state = {...state, filename: FileDownloadState.downloaded};
+        final newState = Map<String, FileDownloadState>.from(state);
+        newState[filename] = FileDownloadState.downloaded;
+        state = newState;
       }
     });
   }
@@ -46,12 +48,16 @@ class FileDownloadNotifier extends StateNotifier<Map<String, FileDownloadState>>
 
     // 캐시에 이미 있는지 확인
     if (cache.imageCache.contains(filename)) {
-      state = {...state, filename: FileDownloadState.downloaded};
+      final newState = Map<String, FileDownloadState>.from(state);
+      newState[filename] = FileDownloadState.downloaded;
+      state = newState;
       return;
     }
 
     // 다운로드 중 상태로 변경
-    state = {...state, filename: FileDownloadState.downloading};
+    final newState = Map<String, FileDownloadState>.from(state);
+    newState[filename] = FileDownloadState.downloading;
+    state = newState;
 
     // 다운로드 요청
     final blobService = _ref.read(blobTransferServiceProvider);
@@ -65,7 +71,9 @@ class FileDownloadNotifier extends StateNotifier<Map<String, FileDownloadState>>
 
   /// 다운로드 실패 처리
   void setFailed(String filename) {
-    state = {...state, filename: FileDownloadState.failed};
+    final newState = Map<String, FileDownloadState>.from(state);
+    newState[filename] = FileDownloadState.failed;
+    state = newState;
   }
 
   /// 상태 초기화
