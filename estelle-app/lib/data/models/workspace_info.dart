@@ -135,6 +135,7 @@ class ConversationInfo {
   final String? claudeSessionId;
   final String status; // idle, working, waiting, error
   final bool unread;
+  final String permissionMode; // default, acceptEdits, bypassPermissions
   final DateTime? createdAt;
 
   ConversationInfo({
@@ -144,6 +145,7 @@ class ConversationInfo {
     this.claudeSessionId,
     this.status = 'idle',
     this.unread = false,
+    this.permissionMode = 'default',
     this.createdAt,
   });
 
@@ -155,6 +157,7 @@ class ConversationInfo {
       claudeSessionId: json['claudeSessionId'],
       status: json['status'] ?? 'idle',
       unread: json['unread'] ?? false,
+      permissionMode: json['permissionMode'] ?? 'default',
       createdAt: json['createdAt'] != null
           ? DateTime.tryParse(json['createdAt'].toString())
           : null,

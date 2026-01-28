@@ -9,5 +9,5 @@
       "Bash(dir:*)"
     ]
   },
-  "enabledMcpjsonServers": ["estelle-deploy"]
+  "enabledMcpjsonServers": ["estelle-mcp"]
 }

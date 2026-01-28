@@ -288,13 +288,14 @@ class RelayService {
 
   /// 퍼미션 모드 변경 (특정 대화에 적용)
   /// [deviceId] - Pylon deviceId
+  /// [workspaceId] - 워크스페이스 ID
   /// [conversationId] - 대화 ID
   /// [mode] - 'default', 'acceptEdits', 'bypassPermissions'
-  void setPermissionMode(int deviceId, String conversationId, String mode) {
+  void setPermissionMode(int deviceId, String workspaceId, String conversationId, String mode) {
     send({
       'type': 'claude_set_permission_mode',
       'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
-      'payload': {'conversationId': conversationId, 'mode': mode},
+      'payload': {'workspaceId': workspaceId, 'conversationId': conversationId, 'mode': mode},
     });
   }
 

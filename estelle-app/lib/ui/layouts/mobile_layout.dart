@@ -418,6 +418,7 @@ class _SessionMenuButton extends ConsumerWidget {
     ref.read(permissionModeProvider(conversationId).notifier).state = nextMode;
     ref.read(relayServiceProvider).setPermissionMode(
       workspace.deviceId,
+      workspace.workspaceId,
       conversationId,
       nextMode,
     );

@@ -18,11 +18,9 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import fs from 'fs';
 import path from 'path';
+import workspaceStore from './workspaceStore.js';
 
 const LOG_DIR = path.join(process.cwd(), 'logs');
-
-// 대화별 퍼미션 모드 (conversationId -> mode)
-const permissionModes = new Map();
 
 /**
  * Claude Manager 클래스
@@ -84,25 +82,27 @@ class ClaudeManager {
   ];
 
   /**
-   * 퍼미션 모드 설정 (대화별)
+   * 퍼미션 모드 설정 (대화별) - workspaceStore에 영속 저장
    */
-  static setPermissionMode(conversationId, mode) {
-    permissionModes.set(conversationId, mode);
+  static setPermissionMode(workspaceId, conversationId, mode) {
+    workspaceStore.setConversationPermissionMode(workspaceId, conversationId, mode);
     console.log(`[ClaudeManager] Permission mode for ${conversationId}: ${mode}`);
   }
 
-  static getPermissionMode(conversationId) {
-    return permissionModes.get(conversationId) || 'default';
+  static getPermissionMode(workspaceId, conversationId) {
+    return workspaceStore.getConversationPermissionMode(workspaceId, conversationId);
   }
 
   /**
    * Claude에게 메시지 전송
    * @param {string} sessionId - conversationId
    * @param {string} message - 사용자 메시지
-   * @param {Object} options - 옵션 { workingDir, claudeSessionId }
+   * @param {Object} options - 옵션 { workspaceId, workingDir, claudeSessionId }
    */
   async sendMessage(sessionId, message, options = {}) {
-    const { workingDir, claudeSessionId } = options;
+    const { workspaceId, workingDir, claudeSessionId } = options;
+    // workspaceId 저장 (퍼미션 모드 조회용)
+    this.currentWorkspaceId = workspaceId;
 
     if (!workingDir) {
       this.emitEvent(sessionId, { type: 'error', error: `Working directory not found for: ${sessionId}` });
@@ -430,7 +430,7 @@ class ClaudeManager {
    */
   async handlePermission(sessionId, toolName, input) {
     // 해당 대화의 퍼미션 모드 가져오기
-    const mode = ClaudeManager.getPermissionMode(sessionId);
+    const mode = ClaudeManager.getPermissionMode(this.currentWorkspaceId, sessionId);
 
     // bypassPermissions: 모든 도구 자동 허용 (AskUserQuestion 제외)
     if (mode === 'bypassPermissions' && toolName !== 'AskUserQuestion') {

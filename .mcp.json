@@ -1,8 +1,8 @@
 {
   "mcpServers": {
-    "estelle-deploy": {
+    "estelle-mcp": {
       "command": "node",
-      "args": ["estelle-pylon/src/mcp.js"]
+      "args": ["estelle-pylon/src/mcp/index.js"]
     }
   }
 }

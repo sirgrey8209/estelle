@@ -31,6 +31,7 @@ import taskList from './tools/task_list.js';
 import taskUpdate from './tools/task_update.js';
 import workerStatus from './tools/worker_status.js';
 import sendFile from './tools/send_file.js';
+import { deployStatus, deployRun } from './tools/deploy.js';
 
 const WORKING_DIR = process.env.ESTELLE_WORKING_DIR || process.cwd();
 
@@ -61,6 +62,8 @@ class EstelleMcpServer {
           taskUpdate.definition,
           workerStatus.definition,
           sendFile.definition,
+          deployStatus.definition,
+          deployRun.definition,
         ],
       };
     });
@@ -92,6 +95,10 @@ class EstelleMcpServer {
             return await workerStatus.execute(WORKING_DIR, args);
           case 'send_file':
             return await sendFile.execute(WORKING_DIR, args, notifyCallback);
+          case 'deploy_status':
+            return await deployStatus.execute();
+          case 'deploy_run':
+            return await deployRun.execute(WORKING_DIR, args);
           default:
             return {
               content: [

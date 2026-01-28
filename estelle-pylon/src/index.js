@@ -1006,7 +1006,7 @@ class Pylon {
           }
         }
 
-        this.claudeManager.sendMessage(conversationId, promptToSend, { workingDir, claudeSessionId });
+        this.claudeManager.sendMessage(conversationId, promptToSend, { workspaceId, workingDir, claudeSessionId });
       }
       return;
     }
@@ -1036,9 +1036,9 @@ class Pylon {
     }
 
     if (type === 'claude_set_permission_mode') {
-      const { conversationId, mode } = payload || {};
-      if (conversationId && mode) {
-        ClaudeManager.setPermissionMode(conversationId, mode);
+      const { workspaceId, conversationId, mode } = payload || {};
+      if (workspaceId && conversationId && mode) {
+        ClaudeManager.setPermissionMode(workspaceId, conversationId, mode);
       }
       return;
     }

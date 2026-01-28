@@ -306,6 +306,27 @@ const workspaceStore = {
     return true;
   },
 
+  // ========== 대화별 퍼미션 모드 ==========
+
+  getConversationPermissionMode(workspaceId, conversationId) {
+    const conv = this.getConversation(workspaceId, conversationId);
+    return conv?.permissionMode || 'default';
+  },
+
+  setConversationPermissionMode(workspaceId, conversationId, mode) {
+    const store = this.load();
+    const workspace = store.workspaces.find(w => w.workspaceId === workspaceId);
+    if (!workspace) return false;
+
+    const conv = workspace.conversations.find(c => c.conversationId === conversationId);
+    if (!conv) return false;
+
+    conv.permissionMode = mode;
+    this.save(store);
+    console.log(`[WorkspaceStore] Conversation ${conversationId} permission mode: ${mode}`);
+    return true;
+  },
+
   // ========== Utility ==========
 
   findWorkspaceByName(name) {
@@ -319,18 +340,6 @@ const workspaceStore = {
   findConversationByWorkingDir(workingDir) {
     const store = this.load();
     return store.workspaces.find(w => w.workingDir === workingDir) || null;
-  },
-
-  getPermissionMode() {
-    const settings = loadSettings();
-    return settings.permissionMode || 'default';
-  },
-
-  setPermissionMode(mode) {
-    const settings = loadSettings();
-    settings.permissionMode = mode;
-    saveSettings(settings);
-    console.log(`[WorkspaceStore] Permission mode set to: ${mode}`);
   },
 
   // 활성 상태 정보

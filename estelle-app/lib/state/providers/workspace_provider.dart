@@ -9,6 +9,9 @@ import 'claude_provider.dart';
 
 const _lastWorkspaceKey = 'estelle_last_workspace';
 
+/// 대화별 퍼미션 모드 Provider (conversationId -> mode)
+final permissionModeProvider = StateProvider.family<String, String>((ref, conversationId) => 'default');
+
 /// JSON에서 List를 안전하게 추출
 List<dynamic>? _safeList(dynamic value) {
   if (value == null) return null;
@@ -116,6 +119,15 @@ class PylonWorkspacesNotifier extends StateNotifier<Map<int, PylonWorkspaces>> {
         workspaces: workspaces,
       ),
     };
+
+    // 각 대화의 permissionMode를 Provider에 동기화
+    for (final ws in workspaces) {
+      for (final conv in ws.conversations) {
+        if (conv.permissionMode != 'default') {
+          _ref.read(permissionModeProvider(conv.conversationId).notifier).state = conv.permissionMode;
+        }
+      }
+    }
 
     // 자동 선택
     _receivedPylons.add(deviceId);

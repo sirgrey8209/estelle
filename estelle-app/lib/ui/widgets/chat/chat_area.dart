@@ -109,9 +109,6 @@ class _ChatHeader extends ConsumerWidget {
   }
 }
 
-/// 대화별 퍼미션 모드 Provider (conversationId -> mode)
-final permissionModeProvider = StateProvider.family<String, String>((ref, conversationId) => 'default');
-
 class _SessionMenuButton extends ConsumerWidget {
   final WorkspaceInfo workspace;
   final ConversationInfo? conversation;
@@ -146,6 +143,7 @@ class _SessionMenuButton extends ConsumerWidget {
     ref.read(permissionModeProvider(conversationId).notifier).state = nextMode;
     ref.read(relayServiceProvider).setPermissionMode(
       workspace.deviceId,
+      workspace.workspaceId,
       conversationId,
       nextMode,
     );
