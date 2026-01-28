@@ -37,9 +37,11 @@ try {
 
     Push-Location $AppDir
 
-    # Flutter build (stderr 경고 무시)
+    # Flutter build (stderr 경고 무시 - ErrorAction 임시 변경)
+    $ErrorActionPreference = "Continue"
     $output = & $FlutterExe build windows --release 2>&1
     $exitCode = $LASTEXITCODE
+    $ErrorActionPreference = "Stop"
     if ($exitCode -ne 0) {
         throw "Flutter Windows build failed: $output"
     }
