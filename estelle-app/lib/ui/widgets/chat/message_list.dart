@@ -5,12 +5,14 @@ import '../../../data/models/claude_message.dart';
 import '../../../state/providers/claude_provider.dart';
 import '../../../state/providers/image_upload_provider.dart';
 import '../../../state/providers/workspace_provider.dart';
+import '../../../state/providers/file_download_provider.dart';
 import 'message_bubble.dart';
 import 'tool_card.dart';
 import 'result_info.dart';
 import 'streaming_bubble.dart';
 import 'working_indicator.dart';
 import 'uploading_image_bubble.dart';
+import '../viewers/file_viewer_dialog.dart';
 
 class MessageList extends ConsumerStatefulWidget {
   const MessageList({super.key});
@@ -257,6 +259,7 @@ class _MessageListState extends ConsumerState<MessageList> {
                         responseType: msg.responseType,
                         content: msg.content,
                       ),
+                      FileAttachmentMessage msg => _FileAttachmentBubble(message: msg),
                     },
                   ),
                 );
@@ -305,6 +308,39 @@ class _MessageListState extends ConsumerState<MessageList> {
             ),
           ),
       ],
+    );
+  }
+}
+
+/// 파일 첨부 메시지 버블 (다운로드 상태 관리 포함)
+class _FileAttachmentBubble extends ConsumerWidget {
+  final FileAttachmentMessage message;
+
+  const _FileAttachmentBubble({required this.message});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final downloadState = ref.watch(fileDownloadStateProvider(message.file.filename));
+    final selectedItem = ref.watch(selectedItemProvider);
+
+    return MessageBubble.fileAttachment(
+      file: message.file,
+      downloadState: downloadState,
+      onDownload: () {
+        if (selectedItem == null) return;
+
+        // 다운로드 시작
+        ref.read(fileDownloadProvider.notifier).startDownload(
+          filename: message.file.filename,
+          targetDeviceId: selectedItem.deviceId,
+          conversationId: selectedItem.itemId,
+          filePath: message.file.path,
+        );
+      },
+      onOpen: () {
+        // 뷰어 열기
+        showFileViewer(context, ref, message.file);
+      },
     );
   }
 }

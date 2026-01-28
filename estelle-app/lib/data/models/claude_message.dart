@@ -223,6 +223,91 @@ class ErrorMessage implements ClaudeMessage {
   }
 }
 
+/// 파일 첨부 정보 (Claude → 사용자)
+class FileAttachmentInfo {
+  final String path;      // Pylon에서의 파일 경로
+  final String filename;  // 파일명.확장자
+  final String mimeType;
+  final String fileType;  // 'image' | 'markdown' | 'text'
+  final int size;
+  final String? description;
+
+  const FileAttachmentInfo({
+    required this.path,
+    required this.filename,
+    required this.mimeType,
+    required this.fileType,
+    required this.size,
+    this.description,
+  });
+
+  factory FileAttachmentInfo.fromJson(Map<String, dynamic> json) {
+    return FileAttachmentInfo(
+      path: json['path'] as String,
+      filename: json['filename'] as String,
+      mimeType: json['mimeType'] as String,
+      fileType: json['fileType'] as String,
+      size: json['size'] as int,
+      description: json['description'] as String?,
+    );
+  }
+
+  /// 이미지 파일인지 확인
+  bool get isImage => fileType == 'image';
+
+  /// 마크다운 파일인지 확인
+  bool get isMarkdown => fileType == 'markdown';
+
+  /// 텍스트 파일인지 확인
+  bool get isText => fileType == 'text';
+
+  /// 사람이 읽기 좋은 파일 크기
+  String get formattedSize {
+    if (size < 1024) return '$size B';
+    if (size < 1024 * 1024) return '${(size / 1024).toStringAsFixed(1)} KB';
+    return '${(size / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+}
+
+/// 다운로드 상태
+enum FileDownloadState {
+  notDownloaded,
+  downloading,
+  downloaded,
+  failed,
+}
+
+/// 파일 첨부 메시지 (Claude가 사용자에게 파일을 보낼 때)
+class FileAttachmentMessage implements ClaudeMessage {
+  @override
+  final String id;
+  final FileAttachmentInfo file;
+  final FileDownloadState downloadState;
+  @override
+  final int timestamp;
+
+  const FileAttachmentMessage({
+    required this.id,
+    required this.file,
+    this.downloadState = FileDownloadState.notDownloaded,
+    required this.timestamp,
+  });
+
+  FileAttachmentMessage copyWith({
+    String? id,
+    FileAttachmentInfo? file,
+    FileDownloadState? downloadState,
+    int? timestamp,
+  }) {
+    return FileAttachmentMessage(
+      id: id ?? this.id,
+      file: file ?? this.file,
+      downloadState: downloadState ?? this.downloadState,
+      timestamp: timestamp ?? this.timestamp,
+    );
+  }
+}
+
 /// User response message (permission or question answer)
 class UserResponseMessage implements ClaudeMessage {
   @override

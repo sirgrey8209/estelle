@@ -356,6 +356,20 @@ class BlobTransferService {
     required String conversationId,
     required String filename,
   }) {
+    requestFile(
+      targetDeviceId: targetDeviceId,
+      conversationId: conversationId,
+      filename: filename,
+    );
+  }
+
+  /// 파일 다운로드 요청 (이미지, 텍스트, 마크다운 등)
+  void requestFile({
+    required int targetDeviceId,
+    required String conversationId,
+    required String filename,
+    String? filePath,
+  }) {
     // 캐시에 있으면 바로 반환
     final cached = imageCache.get(filename);
     if (cached != null) {
@@ -371,7 +385,7 @@ class BlobTransferService {
 
     // 캐시에 없으면 Pylon에서 다운로드
     final blobId = _uuid.v4();
-    _log('BLOB', 'Requesting download: $filename', {'blobId': blobId});
+    _log('BLOB', 'Requesting download: $filename', {'blobId': blobId, 'filePath': filePath});
 
     _relayService.send({
       'type': 'blob_request',
@@ -380,6 +394,7 @@ class BlobTransferService {
         'blobId': blobId,
         'conversationId': conversationId,
         'filename': filename,
+        if (filePath != null) 'localPath': filePath,
       },
     });
   }

@@ -1345,6 +1345,11 @@ class Pylon {
     // 이벤트 타입별 메시지 저장
     this.saveEventToHistory(sessionId, event);
 
+    // send_file MCP 도구 결과 처리 → fileAttachment 이벤트 생성
+    if (event.type === 'toolComplete' && event.toolName === 'mcp__estelle-mcp__send_file') {
+      this.handleSendFileResult(sessionId, event);
+    }
+
     // init 이벤트에서 claudeSessionId 저장 (resume용)
     if (event.type === 'init' && event.session_id) {
       const workspaceId = workspaceStore.findWorkspaceByConversation(sessionId);
@@ -1474,6 +1479,61 @@ class Pylon {
 
     // 사용량 업데이트를 모든 클라이언트에 브로드캐스트
     this.broadcastPylonStatus();
+  }
+
+  /**
+   * send_file MCP 도구 결과 처리 → fileAttachment 이벤트 생성
+   */
+  handleSendFileResult(sessionId, event) {
+    if (!event.success || !event.result) {
+      return;
+    }
+
+    try {
+      // result에서 JSON 파싱
+      const result = JSON.parse(event.result);
+      if (!result.success || !result.file) {
+        return;
+      }
+
+      const { path: filePath, filename, mimeType, fileType, size, description } = result.file;
+
+      this.log(`[send_file] Sending file attachment: ${filename} (${fileType})`);
+
+      // fileAttachment 이벤트 생성
+      const fileEvent = {
+        type: 'fileAttachment',
+        file: {
+          path: filePath,
+          filename,
+          mimeType,
+          fileType,  // 'image' | 'markdown' | 'text'
+          size,
+          description
+        }
+      };
+
+      // 해당 세션을 시청 중인 클라이언트에게 전송
+      const message = {
+        type: 'claude_event',
+        payload: { conversationId: sessionId, event: fileEvent }
+      };
+
+      const viewers = this.getSessionViewers(sessionId);
+      if (viewers.size > 0) {
+        this.send({
+          ...message,
+          to: Array.from(viewers)
+        });
+      }
+
+      this.localServer?.broadcast(message);
+
+      // 히스토리에도 저장 (파일 첨부 기록)
+      messageStore.addFileAttachment(sessionId, result.file);
+    } catch (err) {
+      this.log(`[send_file] Failed to parse result: ${err.message}`);
+    }
   }
 
   /**

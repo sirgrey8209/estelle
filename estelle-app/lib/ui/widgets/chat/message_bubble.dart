@@ -150,6 +150,25 @@ class MessageBubble extends StatelessWidget {
     );
   }
 
+  /// 파일 첨부 메시지 (Claude → 사용자)
+  factory MessageBubble.fileAttachment({
+    required FileAttachmentInfo file,
+    required FileDownloadState downloadState,
+    required VoidCallback onDownload,
+    required VoidCallback onOpen,
+  }) {
+    return MessageBubble._(
+      borderColor: NordColors.nord10,
+      backgroundColor: NordColors.nord1,
+      child: _FileAttachmentCard(
+        file: file,
+        downloadState: downloadState,
+        onDownload: onDownload,
+        onOpen: onOpen,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Align(
@@ -495,6 +514,215 @@ class _AttachmentImageState extends ConsumerState<_AttachmentImage> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// 파일 첨부 카드 위젯 (Claude → 사용자)
+class _FileAttachmentCard extends StatelessWidget {
+  final FileAttachmentInfo file;
+  final FileDownloadState downloadState;
+  final VoidCallback onDownload;
+  final VoidCallback onOpen;
+
+  const _FileAttachmentCard({
+    required this.file,
+    required this.downloadState,
+    required this.onDownload,
+    required this.onOpen,
+  });
+
+  IconData _getFileIcon() {
+    if (file.isImage) return Icons.image;
+    if (file.isMarkdown) return Icons.description;
+    return Icons.insert_drive_file;
+  }
+
+  Color _getFileIconColor() {
+    if (file.isImage) return NordColors.nord15;
+    if (file.isMarkdown) return NordColors.nord8;
+    return NordColors.nord4;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDownloaded = downloadState == FileDownloadState.downloaded;
+    final isDownloading = downloadState == FileDownloadState.downloading;
+
+    return GestureDetector(
+      onTap: isDownloaded ? onOpen : (isDownloading ? null : onDownload),
+      child: Container(
+        constraints: const BoxConstraints(minWidth: 200, maxWidth: 280),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // 파일 정보 헤더
+            Row(
+              children: [
+                Icon(
+                  _getFileIcon(),
+                  size: 20,
+                  color: _getFileIconColor(),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        file.filename,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: NordColors.nord5,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        file.formattedSize,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: NordColors.nord4,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                // 상태 아이콘
+                _buildStatusIcon(isDownloaded, isDownloading),
+              ],
+            ),
+
+            // 설명 (있으면)
+            if (file.description != null && file.description!.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                file.description!,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: NordColors.nord4,
+                  height: 1.3,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+
+            // 액션 버튼
+            const SizedBox(height: 8),
+            _buildActionButton(isDownloaded, isDownloading),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatusIcon(bool isDownloaded, bool isDownloading) {
+    if (isDownloading) {
+      return const SizedBox(
+        width: 16,
+        height: 16,
+        child: CircularProgressIndicator(
+          strokeWidth: 2,
+          color: NordColors.nord8,
+        ),
+      );
+    }
+
+    if (isDownloaded) {
+      return const Icon(
+        Icons.check_circle,
+        size: 18,
+        color: NordColors.nord14,
+      );
+    }
+
+    return const Icon(
+      Icons.cloud_download_outlined,
+      size: 18,
+      color: NordColors.nord4,
+    );
+  }
+
+  Widget _buildActionButton(bool isDownloaded, bool isDownloading) {
+    if (isDownloading) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: NordColors.nord2,
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 12,
+              height: 12,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: NordColors.nord4,
+              ),
+            ),
+            SizedBox(width: 8),
+            Text(
+              '다운로드 중...',
+              style: TextStyle(
+                fontSize: 12,
+                color: NordColors.nord4,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (isDownloaded) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: NordColors.nord10.withOpacity(0.2),
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.open_in_new, size: 14, color: NordColors.nord8),
+            SizedBox(width: 6),
+            Text(
+              '열기',
+              style: TextStyle(
+                fontSize: 12,
+                color: NordColors.nord8,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: NordColors.nord2,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.download, size: 14, color: NordColors.nord4),
+          SizedBox(width: 6),
+          Text(
+            '다운로드',
+            style: TextStyle(
+              fontSize: 12,
+              color: NordColors.nord4,
+            ),
+          ),
+        ],
       ),
     );
   }

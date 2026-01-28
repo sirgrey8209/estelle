@@ -302,6 +302,24 @@ class MessageStore {
   }
 
   /**
+   * 파일 첨부 추가 (send_file MCP 도구 결과)
+   */
+  addFileAttachment(sessionId, fileInfo) {
+    return this.addMessage(sessionId, {
+      role: 'assistant',
+      type: 'file_attachment',
+      file: {
+        path: fileInfo.path,
+        filename: fileInfo.filename,
+        mimeType: fileInfo.mimeType,
+        fileType: fileInfo.fileType,
+        size: fileInfo.size,
+        description: fileInfo.description
+      }
+    });
+  }
+
+  /**
    * 세션 메시지 초기화
    */
   clear(sessionId) {

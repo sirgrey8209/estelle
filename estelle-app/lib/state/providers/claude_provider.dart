@@ -262,6 +262,16 @@ class ClaudeMessagesNotifier extends StateNotifier<List<ClaudeMessage>> {
           cacheReadTokens: (usage?['cacheReadInputTokens'] as num?)?.toInt() ?? 0,
           timestamp: timestamp,
         ));
+      } else if (msgType == 'file_attachment') {
+        final fileData = msg['file'] as Map<String, dynamic>?;
+        if (fileData != null) {
+          messages.add(FileAttachmentMessage(
+            id: id,
+            file: FileAttachmentInfo.fromJson(fileData),
+            downloadState: FileDownloadState.notDownloaded,
+            timestamp: timestamp,
+          ));
+        }
       }
     }
 
@@ -464,6 +474,22 @@ class ClaudeMessagesNotifier extends StateNotifier<List<ClaudeMessage>> {
             timestamp: now,
           ),
         ];
+        break;
+
+      case 'fileAttachment':
+        final fileData = event['file'] as Map<String, dynamic>?;
+        if (fileData != null) {
+          final fileInfo = FileAttachmentInfo.fromJson(fileData);
+          state = [
+            ...state,
+            FileAttachmentMessage(
+              id: '$now-file-${fileInfo.filename}',
+              file: fileInfo,
+              downloadState: FileDownloadState.notDownloaded,
+              timestamp: now,
+            ),
+          ];
+        }
         break;
     }
   }
