@@ -551,6 +551,26 @@ class Pylon {
               workStartTime
             }
           });
+
+          // pending 이벤트가 있으면 전송 (권한 요청, 질문 등)
+          const pendingEvent = this.claudeManager.getPendingEvent(conversationId);
+          if (pendingEvent) {
+            console.log(`[Pylon] Resending pending event for ${conversationId}: ${pendingEvent.type}`);
+            // 상태 먼저 전송
+            if (pendingEvent.type === 'permission_request' || pendingEvent.type === 'askQuestion') {
+              this.send({
+                type: 'claude_event',
+                payload: { conversationId, event: { type: 'state', state: 'permission' } },
+                to: [from.deviceId]
+              });
+            }
+            // pending 이벤트 전송
+            this.send({
+              type: 'claude_event',
+              payload: { conversationId, event: pendingEvent },
+              to: [from.deviceId]
+            });
+          }
         }
       }
       return;

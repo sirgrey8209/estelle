@@ -1,4 +1,5 @@
 ---
+name: estelle-spec
 description: Estelle 프로젝트 스펙 읽기. 새 세션 시작 시 프로젝트 파악용
 allowed-tools: Read, Glob
 ---

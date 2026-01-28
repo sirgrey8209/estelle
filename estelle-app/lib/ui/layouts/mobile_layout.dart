@@ -391,43 +391,100 @@ class _SessionMenuButton extends ConsumerWidget {
     required this.conversation,
   });
 
+  static const _permissionModes = ['default', 'acceptEdits', 'bypassPermissions'];
+  static const _permissionLabels = {
+    'default': 'Default',
+    'acceptEdits': 'Accept Edits',
+    'bypassPermissions': 'Bypass All',
+  };
+  static const _permissionIcons = {
+    'default': Icons.security,
+    'acceptEdits': Icons.edit_note,
+    'bypassPermissions': Icons.warning_amber,
+  };
+  static const _permissionColors = {
+    'default': NordColors.nord4,
+    'acceptEdits': NordColors.nord8,
+    'bypassPermissions': NordColors.nord12,
+  };
+
+  void _cyclePermissionMode(WidgetRef ref) {
+    final conversationId = conversation.conversationId;
+    final currentMode = ref.read(permissionModeProvider(conversationId));
+    final currentIndex = _permissionModes.indexOf(currentMode);
+    final nextIndex = (currentIndex + 1) % _permissionModes.length;
+    final nextMode = _permissionModes[nextIndex];
+
+    ref.read(permissionModeProvider(conversationId).notifier).state = nextMode;
+    ref.read(relayServiceProvider).setPermissionMode(
+      workspace.deviceId,
+      conversationId,
+      nextMode,
+    );
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return PopupMenuButton<String>(
-      icon: const Icon(Icons.more_vert, color: NordColors.nord4, size: 20),
-      color: NordColors.nord1,
-      onSelected: (action) => _handleAction(context, ref, action),
-      itemBuilder: (context) => [
-        const PopupMenuItem(
-          value: 'new_session',
-          child: Row(
-            children: [
-              Icon(Icons.refresh, color: NordColors.nord4, size: 18),
-              SizedBox(width: 8),
-              Text('새 세션', style: TextStyle(color: NordColors.nord5)),
-            ],
+    final conversationId = conversation.conversationId;
+    final currentMode = ref.watch(permissionModeProvider(conversationId));
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Permission mode cycle button
+        Tooltip(
+          message: 'Permission: ${_permissionLabels[currentMode]}',
+          child: InkWell(
+            onTap: () => _cyclePermissionMode(ref),
+            borderRadius: BorderRadius.circular(4),
+            child: Padding(
+              padding: const EdgeInsets.all(8),
+              child: Icon(
+                _permissionIcons[currentMode],
+                color: _permissionColors[currentMode],
+                size: 20,
+              ),
+            ),
           ),
         ),
-        const PopupMenuItem(
-          value: 'compact',
-          child: Row(
-            children: [
-              Icon(Icons.compress, color: NordColors.nord4, size: 18),
-              SizedBox(width: 8),
-              Text('컴팩트', style: TextStyle(color: NordColors.nord5)),
-            ],
-          ),
-        ),
-        const PopupMenuDivider(),
-        const PopupMenuItem(
-          value: 'bug_report',
-          child: Row(
-            children: [
-              Icon(Icons.bug_report, color: NordColors.nord4, size: 18),
-              SizedBox(width: 8),
-              Text('버그 리포트', style: TextStyle(color: NordColors.nord5)),
-            ],
-          ),
+        // Menu button
+        PopupMenuButton<String>(
+          icon: const Icon(Icons.more_vert, color: NordColors.nord4, size: 20),
+          color: NordColors.nord1,
+          onSelected: (action) => _handleAction(context, ref, action),
+          itemBuilder: (context) => [
+            const PopupMenuItem(
+              value: 'new_session',
+              child: Row(
+                children: [
+                  Icon(Icons.refresh, color: NordColors.nord4, size: 18),
+                  SizedBox(width: 8),
+                  Text('새 세션', style: TextStyle(color: NordColors.nord5)),
+                ],
+              ),
+            ),
+            const PopupMenuItem(
+              value: 'compact',
+              child: Row(
+                children: [
+                  Icon(Icons.compress, color: NordColors.nord4, size: 18),
+                  SizedBox(width: 8),
+                  Text('컴팩트', style: TextStyle(color: NordColors.nord5)),
+                ],
+              ),
+            ),
+            const PopupMenuDivider(),
+            const PopupMenuItem(
+              value: 'bug_report',
+              child: Row(
+                children: [
+                  Icon(Icons.bug_report, color: NordColors.nord4, size: 18),
+                  SizedBox(width: 8),
+                  Text('버그 리포트', style: TextStyle(color: NordColors.nord5)),
+                ],
+              ),
+            ),
+          ],
         ),
       ],
     );

@@ -1,4 +1,5 @@
 ---
+name: estelle-general
 description: Estelle 일반 모드. 자유로운 대화와 코딩 작업
 allowed-tools: Read, Edit, Write, Bash, Glob, Grep, WebFetch, WebSearch, Task
 ---

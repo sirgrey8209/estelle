@@ -1,4 +1,5 @@
 ---
+name: estelle-build-deploy
 description: Estelle 앱 빌드, 배포, 개발 테스트. 배포/빌드/APK/EXE/릴리즈/업로드/테스트/개발서버/핫리로드 관련 요청 시 사용
 allowed-tools: Bash
 ---

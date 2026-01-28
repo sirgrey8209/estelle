@@ -176,7 +176,7 @@ class ClaudeManager {
       cwd: sessionInfo.workingDir,
       abortController,
       includePartialMessages: true,
-      allowedTools: ['Skill'],  // Skills 자동 로드 활성화
+      settingSources: ['project'],  // .claude/skills/ 로드
       canUseTool: async (toolName, input) => {
         return this.handlePermission(sessionId, toolName, input);
       }

@@ -202,13 +202,29 @@ export class BlobHandler {
    */
   handleBlobRequest(message) {
     const { payload, from } = message;
-    const { blobId, filename, localPath } = payload;
+    const { blobId, filename, conversationId, localPath } = payload;
+
+    console.log(`[BLOB] Download request: ${filename}`, { conversationId, blobId });
 
     // 파일 찾기
     let filePath = localPath;
 
     if (!filePath || !fs.existsSync(filePath)) {
-      // uploads 폴더에서 검색
+      // conversationId가 있으면 해당 폴더에서 먼저 검색
+      if (conversationId) {
+        const conversationDir = path.join(UPLOADS_DIR, conversationId);
+        const directPath = path.join(conversationDir, filename);
+        if (fs.existsSync(directPath)) {
+          filePath = directPath;
+        } else {
+          // 파일명 일부 매칭 (타임스탬프_파일명 형식)
+          filePath = this.findFileInDir(conversationDir, filename);
+        }
+      }
+    }
+
+    if (!filePath || !fs.existsSync(filePath)) {
+      // 전체 uploads 폴더에서 검색
       filePath = this.findFile(filename);
     }
 

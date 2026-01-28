@@ -1,4 +1,5 @@
 ---
+name: estelle-planner
 description: Estelle 계획 모드. 코드 분석과 계획 수립만. 수정 금지
 allowed-tools: Read, Glob, Grep, WebFetch, WebSearch, Task
 ---

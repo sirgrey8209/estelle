@@ -1,4 +1,5 @@
 ---
+name: estelle-worker
 description: Estelle 워커 모드. 태스크 실행 전용. 주어진 태스크만 구현
 allowed-tools: Read, Edit, Write, Bash, Glob, Grep, Task
 ---
