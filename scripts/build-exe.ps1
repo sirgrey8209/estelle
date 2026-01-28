@@ -37,10 +37,11 @@ try {
 
     Push-Location $AppDir
 
-    # Flutter build
-    & $FlutterExe build windows --release 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        throw "Flutter Windows build failed"
+    # Flutter build (stderr 경고 무시)
+    $output = & $FlutterExe build windows --release 2>&1
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) {
+        throw "Flutter Windows build failed: $output"
     }
 
     $exeDir = Join-Path $AppDir "build\windows\x64\runner\Release"
