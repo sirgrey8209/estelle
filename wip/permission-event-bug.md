@@ -1,6 +1,6 @@
-# Permission 이벤트 전달 버그 수정
+# 메시지 동기화 버그 수정
 
-> 2026-01-27 분석 완료
+> 2026-01-27 분석 시작, 2026-01-28 업데이트, 버그 3,4 수정
 
 ## 증상
 
@@ -13,11 +13,11 @@
 
 ## 발견된 버그
 
-### 버그 1: 대화 전환 시 permission_request 누락
+### 버그 1: 대화 전환 시 이벤트 누락 (미수정)
 
 **원인:**
 ```javascript
-// estelle-pylon/src/index.js:1305-1313
+// estelle-pylon/src/index.js - sendClaudeEvent()
 const viewers = this.getSessionViewers(sessionId);
 if (viewers.size > 0) {  // ← viewers 없으면 안 보냄!
   this.send({ ...message, to: Array.from(viewers) });
@@ -26,118 +26,117 @@ this.localServer?.broadcast(message);  // desktop만 받음
 ```
 
 - 다른 대화로 전환 → `registerSessionViewer`에서 기존 대화 viewers 제거
-- 기존 대화에서 `permission_request` 발생 → viewers 없어서 앱에 안 감
+- 기존 대화에서 이벤트(result, state:idle 등) 발생 → viewers 없어서 앱에 안 감
 - `localServer.broadcast`는 실행되어 desktop만 받음
 
 **영향:**
-- 다른 대화 보다가 돌아오면 permission UI 안 뜸
+- 다른 대화 보다가 돌아오면 상태가 여전히 working으로 표시됨
 
 ---
 
-### 버그 2: 대화 재진입 시 pendingEvent 복원 안 됨 (★ 더 심각)
+### 버그 2: 대화 재진입 시 pendingEvent 복원 안 됨 ✅ 수정됨
+
+**커밋:** `848b659`
+
+**수정 내용:**
+- Pylon: `conversation_select` 처리 시 `pendingEvent` 전송 추가
+- pendingEvent가 있으면 state:permission과 함께 전송
+
+---
+
+### 버그 3: 대화 재진입 시 상태 미복원 ✅ 수정됨
 
 **원인:**
+- 앱이 다른 대화 보는 중에 작업 완료됨 (result, state:idle)
+- viewers 없어서 앱에 안 감 (버그 1)
+- 다시 돌아옴 → history_result 받음
+- `hasActiveSession: false` → **하지만 상태를 idle로 안 바꿈**
 
-Pylon - `conversation_select` 처리:
-```javascript
-// estelle-pylon/src/index.js:537-551
-this.send({
-  type: 'history_result',
-  payload: {
-    messages,
-    hasActiveSession,
-    workStartTime
-    // pendingEvent 없음!
-  }
-});
-```
-
-App - `_handleHistoryResult`:
+**수정:**
 ```dart
-// claude_provider.dart:136-181
-// pendingEvent 처리 로직 없음
+// estelle-app/lib/state/providers/claude_provider.dart - _handleHistoryResult()
+if (hasActiveSession) {
+  // working 상태 복원
+} else {
+  // 작업 완료 상태로 변경
+  _ref.read(claudeStateProvider.notifier).state = 'idle';
+  _ref.read(isThinkingProvider.notifier).state = false;
+  _ref.read(workStartTimeProvider.notifier).state = null;
+}
 ```
 
-**영향:**
-- 앱 재시작해도 permission UI 안 뜸 → 영원히 멈춤
+---
+
+---
+
+### 버그 4: pendingEvents 삭제 누락 ✅ 수정됨
+
+**원인:**
+```javascript
+// estelle-pylon/src/claudeManager.js
+stop(sessionId) {
+  this.sessions.delete(sessionId);
+  this.pendingPermissions.clear();
+  this.pendingQuestions.clear();
+  // ❌ pendingEvents 삭제 안 함!
+}
+
+// finally 블록도 마찬가지
+finally {
+  this.sessions.delete(sessionId);
+  // ❌ pendingEvents 삭제 안 함!
+}
+```
+
+- 세션 강제 종료 시 pendingEvents가 남아있음
+- 대화 재진입 시 오래된 퍼미션 요청이 다시 표시됨
+
+**수정:**
+- `stop()`: `this.pendingEvents.delete(sessionId)` 추가
+- `finally`: `this.pendingEvents.delete(sessionId)` 추가
+
+---
+
+## 수정 현황
+
+| 버그 | 상태 | 비고 |
+|------|------|------|
+| 버그 1 | 미수정 | 근본적 해결 필요 |
+| 버그 2 | ✅ 수정됨 | 커밋 848b659 |
+| 버그 3 | ✅ 수정됨 | App 수정 |
+| 버그 4 | ✅ 수정됨 | Pylon 수정 |
 
 ---
 
 ## 수정 계획
 
-### 1단계: 버그 2 수정 (우선)
+### 버그 1 수정 (추후)
 
-**Pylon 수정** - `estelle-pylon/src/index.js`
-
-`conversation_select` 처리 부분 (522-555줄):
+**방안 1:** 중요 이벤트는 broadcast
 ```javascript
-// pendingEvent 가져오기
-const pendingEvent = this.claudeManager.getPendingEvent(conversationId);
-
-this.send({
-  type: 'history_result',
-  to: from.deviceId,
-  payload: {
-    // ... 기존 필드들
-    pendingEvent  // 추가
-  }
-});
-```
-
-**App 수정** - `estelle-app/lib/state/providers/claude_provider.dart`
-
-`_handleHistoryResult()` (136-181줄):
-```dart
-// 기존 처리 후...
-
-// pendingEvent 복원
-final pendingEvent = payload['pendingEvent'] as Map<String, dynamic>?;
-if (pendingEvent != null) {
-  _handleClaudeEvent(pendingEvent);
-}
-```
-
----
-
-### 2단계: 버그 1 수정
-
-**Pylon 수정** - `estelle-pylon/src/index.js`
-
-`sendClaudeEvent()` (1305-1313줄):
-```javascript
-// 중요 이벤트는 viewers 없어도 broadcast
-const importantEvents = ['permission_request', 'askQuestion'];
+const importantEvents = ['permission_request', 'askQuestion', 'result', 'state'];
 if (importantEvents.includes(event.type)) {
-  this.send({
-    ...message,
-    broadcast: 'clients'  // 모든 클라이언트에게
-  });
-} else if (viewers.size > 0) {
-  this.send({ ...message, to: Array.from(viewers) });
+  this.send({ ...message, broadcast: 'clients' });
 }
 ```
+
+**방안 2:** viewers 없어도 마지막 시청자에게 전송
 
 ---
 
 ## 테스트 시나리오
 
-### 버그 2 테스트
-1. Edit 툴 사용하는 대화 시작
-2. permission 뜨기 전에 앱 종료
-3. 앱 재시작 → 해당 대화 선택
-4. **기대:** permission UI가 떠야 함
-
-### 버그 1 테스트
+### 버그 3 테스트
 1. 대화 A에서 Claude 작업 시작
 2. 대화 B로 전환
-3. 대화 A에서 permission_request 발생
+3. 대화 A에서 작업 완료 (result, state:idle)
 4. 대화 A로 돌아감
-5. **기대:** permission UI가 떠야 함
+5. **기대:** idle 상태, 작업 완료 메시지 표시
 
 ---
 
 ## 관련 파일
 
 - `estelle-pylon/src/index.js`
-- `estelle-pylon/src/claudeManager.js`
-- `estelle-app/lib/state/providers/claude_provider.dart`
+- `estelle-pylon/src/claudeManager.js` (버그 4 수정)
+- `estelle-app/lib/state/providers/claude_provider.dart` (버그 3 수정)

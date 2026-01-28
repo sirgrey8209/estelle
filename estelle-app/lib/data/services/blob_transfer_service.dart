@@ -55,12 +55,14 @@ class BlobUploadCompleteEvent {
   final String filename;
   final String pylonPath;
   final String conversationId;
+  final String? thumbnailBase64;  // Pylon에서 생성한 썸네일 (base64)
 
   BlobUploadCompleteEvent({
     required this.blobId,
     required this.filename,
     required this.pylonPath,
     required this.conversationId,
+    this.thumbnailBase64,
   });
 }
 
@@ -311,6 +313,7 @@ class BlobTransferService {
     final blobId = payload['blobId'] as String;
     final pylonPath = payload['path'] as String;
     final conversationId = payload['conversationId'] as String? ?? '';
+    final thumbnailBase64 = payload['thumbnail'] as String?;
 
     final transfer = _transfers[blobId];
     if (transfer != null) {
@@ -318,12 +321,20 @@ class BlobTransferService {
       transfer.pylonPath = pylonPath;
       _progressController.add(transfer);
 
+      // 썸네일이 있으면 캐시에 저장 (썸네일 키: thumb_filename)
+      if (thumbnailBase64 != null && thumbnailBase64.isNotEmpty) {
+        final thumbBytes = base64Decode(thumbnailBase64);
+        imageCache.put('thumb_${transfer.filename}', thumbBytes);
+        _log('BLOB', 'Thumbnail cached: thumb_${transfer.filename}');
+      }
+
       // 완료 이벤트 발송
       _uploadCompleteController.add(BlobUploadCompleteEvent(
         blobId: blobId,
         filename: transfer.filename,
         pylonPath: pylonPath,
         conversationId: conversationId,
+        thumbnailBase64: thumbnailBase64,
       ));
 
       onUploadComplete?.call(blobId, pylonPath);
@@ -332,6 +343,7 @@ class BlobTransferService {
         'blobId': blobId,
         'filename': transfer.filename,
         'pylonPath': pylonPath,
+        'hasThumbnail': thumbnailBase64 != null,
       });
     }
   }

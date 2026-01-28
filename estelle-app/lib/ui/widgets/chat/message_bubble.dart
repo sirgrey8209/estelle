@@ -230,8 +230,10 @@ class _AttachmentImage extends ConsumerStatefulWidget {
 
 class _AttachmentImageState extends ConsumerState<_AttachmentImage> {
   Uint8List? _imageBytes;
+  Uint8List? _thumbnailBytes;  // 썸네일 (원본 없을 때 표시)
   bool _isLoading = true;
   bool _downloadRequested = false;
+  bool _hasFullImage = false;  // 원본 이미지 여부
 
   @override
   void initState() {
@@ -242,19 +244,33 @@ class _AttachmentImageState extends ConsumerState<_AttachmentImage> {
   void _loadImage() {
     final filename = widget.attachment.filename;
 
-    // 캐시에서 먼저 확인
+    // 원본 캐시에서 먼저 확인
     final cached = cache.imageCache.get(filename);
     if (cached != null) {
       if (mounted) {
         setState(() {
           _imageBytes = cached;
+          _hasFullImage = true;
           _isLoading = false;
         });
       }
       return;
     }
 
-    // 캐시에 없으면 로딩 상태 표시
+    // 원본이 없으면 썸네일 확인
+    final thumbnail = cache.imageCache.get('thumb_$filename');
+    if (thumbnail != null) {
+      if (mounted) {
+        setState(() {
+          _thumbnailBytes = thumbnail;
+          _hasFullImage = false;
+          _isLoading = false;
+        });
+      }
+      return;
+    }
+
+    // 둘 다 없으면 로딩 상태 해제
     if (mounted) {
       setState(() {
         _isLoading = false;
@@ -285,6 +301,7 @@ class _AttachmentImageState extends ConsumerState<_AttachmentImage> {
       if (event.filename == widget.attachment.filename && mounted) {
         setState(() {
           _imageBytes = event.bytes;
+          _hasFullImage = true;
         });
       }
     });
@@ -300,7 +317,8 @@ class _AttachmentImageState extends ConsumerState<_AttachmentImage> {
       return _buildLoadingPlaceholder();
     }
 
-    if (_imageBytes != null) {
+    // 원본 이미지가 있으면 표시
+    if (_imageBytes != null && _hasFullImage) {
       return GestureDetector(
         onTap: () => _showFullImage(context, _imageBytes!),
         child: ClipRRect(
@@ -318,6 +336,50 @@ class _AttachmentImageState extends ConsumerState<_AttachmentImage> {
               },
             ),
           ),
+        ),
+      );
+    }
+
+    // 썸네일만 있으면 썸네일 표시 (클릭 시 원본 다운로드)
+    if (_thumbnailBytes != null) {
+      return GestureDetector(
+        onTap: _requestDownload,
+        child: Stack(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  maxWidth: 200,
+                  maxHeight: 200,
+                ),
+                child: Image.memory(
+                  _thumbnailBytes!,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stack) {
+                    return _buildPlaceholder();
+                  },
+                ),
+              ),
+            ),
+            // 다운로드 아이콘 오버레이
+            Positioned(
+              right: 4,
+              bottom: 4,
+              child: Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: NordColors.nord0.withOpacity(0.7),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: const Icon(
+                  Icons.download,
+                  size: 16,
+                  color: NordColors.nord8,
+                ),
+              ),
+            ),
+          ],
         ),
       );
     }

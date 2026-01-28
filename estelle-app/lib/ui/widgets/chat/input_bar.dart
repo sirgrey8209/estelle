@@ -319,10 +319,14 @@ class _InputBarState extends ConsumerState<InputBar> {
     String messageToSend = text;
     if (imagePaths.isNotEmpty) {
       final imageRefs = imagePaths.map((p) => '[image:$p]').join('\n');
-      messageToSend = '$imageRefs\n$text';
+      messageToSend = text.isEmpty ? imageRefs : '$imageRefs\n$text';
     }
 
-    ref.read(sendingMessageProvider.notifier).state = text;
+    // 전송 중 표시 (이미지만 보내면 "[이미지]"로 표시)
+    final displayMessage = text.isEmpty && imagePaths.isNotEmpty
+        ? '[이미지 ${imagePaths.length}개]'
+        : text;
+    ref.read(sendingMessageProvider.notifier).state = displayMessage;
 
     ref.read(relayServiceProvider).sendClaudeMessage(
       selectedItem.deviceId,
@@ -346,6 +350,9 @@ class _InputBarState extends ConsumerState<InputBar> {
     final queued = ref.read(imageUploadProvider.notifier).dequeueMessage();
     if (queued != null) {
       _sendTextMessage(queued.text);
+    } else if (uploadState.recentImagePaths.isNotEmpty) {
+      // 메시지 없이 이미지만 있는 경우 - 빈 메시지로 전송
+      _sendTextMessage('');
     }
   }
 

@@ -126,6 +126,7 @@ class ClaudeManager {
       this.emitEvent(sessionId, { type: 'error', error: err.message });
     } finally {
       this.sessions.delete(sessionId);
+      this.pendingEvents.delete(sessionId);
       this.emitEvent(sessionId, { type: 'state', state: 'idle' });
     }
   }
@@ -517,10 +518,13 @@ class ClaudeManager {
     // 2. 세션 강제 삭제
     this.sessions.delete(sessionId);
 
-    // 3. 상태 강제 변경
+    // 3. pending 이벤트 삭제 (재진입 시 오래된 퍼미션 표시 방지)
+    this.pendingEvents.delete(sessionId);
+
+    // 4. 상태 강제 변경
     this.emitEvent(sessionId, { type: 'state', state: 'idle' });
 
-    // 4. 대기 중인 권한 요청 모두 거부
+    // 5. 대기 중인 권한 요청 모두 거부
     for (const [id, pending] of this.pendingPermissions) {
       try {
         pending.resolve({ behavior: 'deny', message: 'Stopped' });

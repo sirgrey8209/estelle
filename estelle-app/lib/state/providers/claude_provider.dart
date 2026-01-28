@@ -1,8 +1,10 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/models/claude_message.dart';
 import '../../data/models/pending_request.dart';
 import '../../data/services/relay_service.dart';
+import '../../data/services/image_cache_service.dart' as cache;
 import 'relay_provider.dart';
 import 'workspace_provider.dart';
 
@@ -169,6 +171,11 @@ class ClaudeMessagesNotifier extends StateNotifier<List<ClaudeMessage>> {
           } else {
             _ref.read(workStartTimeProvider.notifier).state = DateTime.now();
           }
+        } else {
+          // 작업 완료 상태로 변경 (다른 대화 보는 중 작업 완료된 경우)
+          _ref.read(claudeStateProvider.notifier).state = 'idle';
+          _ref.read(isThinkingProvider.notifier).state = false;
+          _ref.read(workStartTimeProvider.notifier).state = null;
         }
       } else {
         // 더 많은 히스토리 로드: 앞에 추가
@@ -273,6 +280,19 @@ class ClaudeMessagesNotifier extends StateNotifier<List<ClaudeMessage>> {
         final rawContent = event['content'] as String? ?? '';
         final parsed = UserTextMessage.parseContent(rawContent);
         final timestamp = (event['timestamp'] as num?)?.toInt() ?? now;
+
+        // 썸네일이 있으면 캐시에 저장 (브로드캐스트로 받은 이미지)
+        final thumbnail = event['thumbnail'] as String?;
+        if (thumbnail != null && thumbnail.isNotEmpty && parsed.attachments.isNotEmpty) {
+          try {
+            final thumbBytes = base64Decode(thumbnail);
+            // 첫 번째 첨부파일의 썸네일로 저장
+            cache.imageCache.put('thumb_${parsed.attachments.first.filename}', thumbBytes);
+          } catch (e) {
+            debugPrint('[THUMBNAIL] Failed to decode: $e');
+          }
+        }
+
         state = [
           ...state,
           UserTextMessage(

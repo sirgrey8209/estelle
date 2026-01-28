@@ -10,6 +10,7 @@ import path from 'path';
 import https from 'https';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import sharp from 'sharp';
 
 import workspaceStore from './workspaceStore.js';
 import folderManager from './folderManager.js';
@@ -85,6 +86,29 @@ class Pylon {
 
   log(message) {
     logger.log(`[${new Date().toISOString()}] ${message}`);
+  }
+
+  /**
+   * 이미지 썸네일 생성 (base64)
+   * @param {string} imagePath - 원본 이미지 경로
+   * @param {number} maxSize - 최대 크기 (기본 200px)
+   * @returns {Promise<string|null>} base64 인코딩된 썸네일 또는 null
+   */
+  async generateThumbnail(imagePath, maxSize = 200) {
+    try {
+      const buffer = await sharp(imagePath)
+        .resize(maxSize, maxSize, {
+          fit: 'inside',
+          withoutEnlargement: true
+        })
+        .jpeg({ quality: 70 })
+        .toBuffer();
+
+      return buffer.toString('base64');
+    } catch (err) {
+      this.log(`[THUMBNAIL] Failed to generate thumbnail: ${err.message}`);
+      return null;
+    }
   }
 
   async start() {
@@ -862,48 +886,55 @@ class Pylon {
 
         const imageFilename = path.basename(imagePath);
 
-        // 클라이언트에 업로드 완료 알림 (Pylon 경로 포함)
-        this.send({
-          type: 'blob_upload_complete',
-          to: from,
-          payload: {
-            blobId,
-            path: imagePath,
-            filename: imageFilename,
-            conversationId,
-            workspaceId,
-          }
-        });
-
-        // 히스토리에 이미지 메시지 저장
-        const imageMessage = `[image:${imageFilename}]`;
-        messageStore.addUserMessage(conversationId, imageMessage);
-
-        // 브로드캐스트 (다른 클라이언트에게 이미지 버블 표시)
-        const userMessageEvent = {
-          type: 'claude_event',
-          payload: {
-            workspaceId,
-            conversationId,
-            event: {
-              type: 'userMessage',
-              content: imageMessage,
-              timestamp: Date.now()
+        // 썸네일 생성 (비동기)
+        this.generateThumbnail(imagePath).then(thumbnail => {
+          // 클라이언트에 업로드 완료 알림 (Pylon 경로 + 썸네일 포함)
+          this.send({
+            type: 'blob_upload_complete',
+            to: from,
+            payload: {
+              blobId,
+              path: imagePath,
+              filename: imageFilename,
+              conversationId,
+              workspaceId,
+              thumbnail, // base64 썸네일 (null일 수 있음)
             }
-          }
-        };
-        this.send({ ...userMessageEvent, broadcast: 'clients' });
-        this.localServer?.broadcast(userMessageEvent);
+          });
 
-        // pending 이미지로 저장 (다음 claude_send에서 Claude에게 전달)
-        if (!this.pendingImages.has(conversationId)) {
-          this.pendingImages.set(conversationId, []);
-        }
-        this.pendingImages.get(conversationId).push({
-          path: imagePath,
-          filename: imageFilename
+          // 히스토리에 이미지 메시지 저장
+          const imageMessage = `[image:${imageFilename}]`;
+          messageStore.addUserMessage(conversationId, imageMessage);
+
+          // 브로드캐스트 (다른 클라이언트에게 이미지 버블 표시)
+          const userMessageEvent = {
+            type: 'claude_event',
+            payload: {
+              workspaceId,
+              conversationId,
+              event: {
+                type: 'userMessage',
+                content: imageMessage,
+                thumbnail, // 썸네일도 함께 전송
+                timestamp: Date.now()
+              }
+            }
+          };
+          this.send({ ...userMessageEvent, broadcast: 'clients' });
+          this.localServer?.broadcast(userMessageEvent);
+
+          // pending 이미지로 저장 (다음 claude_send에서 Claude에게 전달)
+          if (!this.pendingImages.has(conversationId)) {
+            this.pendingImages.set(conversationId, []);
+          }
+          this.pendingImages.get(conversationId).push({
+            path: imagePath,
+            filename: imageFilename
+          });
+          console.log(`[IMAGE] Pending image added for ${conversationId}: ${imageFilename}`);
+        }).catch(err => {
+          this.log(`[THUMBNAIL] Error: ${err.message}`);
         });
-        console.log(`[IMAGE] Pending image added for ${conversationId}: ${imageFilename}`);
       }
       return;
     }
