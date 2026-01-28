@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/constants/colors.dart';
 import '../../../core/constants/build_info.dart';
+import '../../../core/services/apk_installer.dart';
 import '../../../state/providers/settings_provider.dart';
 import '../../../state/providers/workspace_provider.dart';
 
@@ -16,6 +17,11 @@ class AppUpdateSection extends ConsumerStatefulWidget {
 }
 
 class _AppUpdateSectionState extends ConsumerState<AppUpdateSection> {
+  // 다운로드 상태
+  bool _isDownloading = false;
+  double _downloadProgress = 0.0;
+  String _downloadStatus = '';
+
   @override
   void initState() {
     super.initState();
@@ -123,13 +129,58 @@ class _AppUpdateSectionState extends ConsumerState<AppUpdateSection> {
             ],
           ),
 
+          // 다운로드 진행률 (Android만)
+          if (_isDownloading && isAndroid) ...[
+            const SizedBox(height: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: LinearProgressIndicator(
+                          value: _downloadProgress,
+                          backgroundColor: NordColors.nord3,
+                          valueColor: const AlwaysStoppedAnimation<Color>(
+                            NordColors.nord8,
+                          ),
+                          minHeight: 6,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '${(_downloadProgress * 100).toInt()}%',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: NordColors.nord4,
+                      ),
+                    ),
+                  ],
+                ),
+                if (_downloadStatus.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    _downloadStatus,
+                    style: const TextStyle(
+                      fontSize: 10,
+                      color: NordColors.nord4,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ],
+
           // 업데이트 버튼
           const SizedBox(height: 12),
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
               // 업데이트 상태 텍스트
-              if (hasUpdate)
+              if (!_isDownloading && hasUpdate)
                 const Padding(
                   padding: EdgeInsets.only(right: 8),
                   child: Text(
@@ -140,7 +191,7 @@ class _AppUpdateSectionState extends ConsumerState<AppUpdateSection> {
                     ),
                   ),
                 )
-              else if (versionInfo.version != null)
+              else if (!_isDownloading && versionInfo.version != null)
                 const Padding(
                   padding: EdgeInsets.only(right: 8),
                   child: Text(
@@ -161,7 +212,7 @@ class _AppUpdateSectionState extends ConsumerState<AppUpdateSection> {
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   minimumSize: const Size(100, 36),
                 ),
-                onPressed: pylons.isEmpty || versionInfo.isUpdating
+                onPressed: pylons.isEmpty || versionInfo.isUpdating || _isDownloading
                     ? null
                     : () => _handleUpdate(
                           context,
@@ -170,7 +221,7 @@ class _AppUpdateSectionState extends ConsumerState<AppUpdateSection> {
                           isWindows,
                           versionInfo,
                         ),
-                icon: versionInfo.isUpdating
+                icon: (versionInfo.isUpdating || _isDownloading)
                     ? const SizedBox(
                         width: 14,
                         height: 14,
@@ -185,7 +236,9 @@ class _AppUpdateSectionState extends ConsumerState<AppUpdateSection> {
                         size: 16,
                       ),
                 label: Text(
-                  versionInfo.isUpdating ? '준비중...' : '업데이트',
+                  _isDownloading
+                      ? '다운로드 중...'
+                      : (versionInfo.isUpdating ? '준비중...' : '업데이트'),
                   style: const TextStyle(fontSize: 12),
                 ),
               ),
@@ -221,14 +274,74 @@ class _AppUpdateSectionState extends ConsumerState<AppUpdateSection> {
 
     String url;
     if (isAndroid) {
-      url = '$baseUrl/estelle-app.apk';
+      url = '$baseUrl/app-release.apk';
     } else if (isWindows) {
-      url = '$baseUrl/estelle-app.exe';
+      url = '$baseUrl/estelle-windows.zip';
     } else {
       // 기타 플랫폼은 Release 페이지로
       url = 'https://github.com/sirgrey8209/estelle/releases/tag/deploy';
     }
 
+    // Android: 다운로드 후 자동 설치
+    if (isAndroid) {
+      setState(() {
+        _isDownloading = true;
+        _downloadProgress = 0.0;
+        _downloadStatus = '';
+      });
+
+      try {
+        final success = await ApkInstaller.downloadAndInstall(
+          url: url,
+          onProgress: (progress) {
+            if (mounted) {
+              setState(() {
+                _downloadProgress = progress;
+              });
+            }
+          },
+          onStatusChange: (status) {
+            if (mounted) {
+              setState(() {
+                _downloadStatus = status;
+              });
+            }
+          },
+        );
+
+        if (mounted) {
+          setState(() {
+            _isDownloading = false;
+          });
+
+          if (!success && context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(_downloadStatus.isNotEmpty
+                    ? _downloadStatus
+                    : '설치를 완료하려면 다운로드된 APK를 실행하세요'),
+                duration: const Duration(seconds: 5),
+              ),
+            );
+          }
+        }
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            _isDownloading = false;
+            _downloadStatus = '오류: $e';
+          });
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('다운로드 실패: $e')),
+            );
+          }
+        }
+      }
+      return;
+    }
+
+    // Windows/기타: 브라우저에서 열기
     final uri = Uri.parse(url);
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);

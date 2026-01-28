@@ -20,6 +20,9 @@ dependencies:
   crypto: ^3.0.3
   uuid: ^4.3.3
   mime: ^1.0.5
+  dio: ^5.4.0
+  open_filex: ^4.5.0
+  permission_handler: ^11.3.0
 
 dev_dependencies:
   flutter_test:

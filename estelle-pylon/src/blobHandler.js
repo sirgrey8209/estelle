@@ -198,16 +198,17 @@ export class BlobHandler {
   }
 
   /**
-   * blob_request 처리 (클라이언트가 이미지 요청)
+   * blob_request 처리 (클라이언트가 파일 요청)
    */
   handleBlobRequest(message) {
     const { payload, from } = message;
     const { blobId, filename, conversationId, localPath } = payload;
 
-    console.log(`[BLOB] Download request: ${filename}`, { conversationId, blobId });
+    console.log(`[BLOB] Download request: ${filename}`, { conversationId, blobId, localPath });
 
-    // 파일 찾기
+    // 파일 찾기 - localPath가 있으면 우선 사용
     let filePath = localPath;
+    console.log(`[BLOB] Trying localPath: ${localPath}, exists: ${localPath ? fs.existsSync(localPath) : 'N/A'}`);
 
     if (!filePath || !fs.existsSync(filePath)) {
       // conversationId가 있으면 해당 폴더에서 먼저 검색
@@ -233,10 +234,14 @@ export class BlobHandler {
       return { success: false, error: 'File not found' };
     }
 
+    console.log(`[BLOB] Found file: ${filePath}`);
+
     // 파일 읽기 및 청크 전송
     const fileBuffer = fs.readFileSync(filePath);
     const mimeType = this.getMimeType(filename);
     const totalChunks = Math.ceil(fileBuffer.length / CHUNK_SIZE);
+
+    console.log(`[BLOB] Sending file: ${filename} (${fileBuffer.length} bytes, ${totalChunks} chunks)`);
 
     // blob_start 전송
     this.send({
@@ -288,6 +293,21 @@ export class BlobHandler {
   }
 
   /**
+   * 특정 디렉토리에서 파일 검색
+   */
+  findFileInDir(dir, filename) {
+    if (!fs.existsSync(dir)) return null;
+
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory() && entry.name.endsWith(filename)) {
+        return path.join(dir, entry.name);
+      }
+    }
+    return null;
+  }
+
+  /**
    * uploads 폴더에서 파일 검색
    */
   findFile(filename) {
@@ -316,6 +336,7 @@ export class BlobHandler {
   getMimeType(filename) {
     const ext = path.extname(filename).toLowerCase();
     const mimeTypes = {
+      // 이미지
       '.jpg': 'image/jpeg',
       '.jpeg': 'image/jpeg',
       '.png': 'image/png',
@@ -323,6 +344,16 @@ export class BlobHandler {
       '.webp': 'image/webp',
       '.svg': 'image/svg+xml',
       '.bmp': 'image/bmp',
+      // 마크다운
+      '.md': 'text/markdown',
+      '.markdown': 'text/markdown',
+      // 텍스트
+      '.txt': 'text/plain',
+      '.log': 'text/plain',
+      '.json': 'application/json',
+      '.xml': 'text/xml',
+      '.yaml': 'text/yaml',
+      '.yml': 'text/yaml',
     };
     return mimeTypes[ext] || 'application/octet-stream';
   }

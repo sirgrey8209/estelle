@@ -15,10 +15,14 @@ final relayServiceProvider = Provider<RelayService>((ref) {
   return relayService;
 });
 
-/// BlobTransferService provider
+/// BlobTransferService singleton
+BlobTransferService? _blobTransferService;
+
+/// BlobTransferService provider (싱글톤)
 final blobTransferServiceProvider = Provider<BlobTransferService>((ref) {
-  final relay = ref.watch(relayServiceProvider);
-  return BlobTransferService(relay);
+  final relay = ref.read(relayServiceProvider);
+  _blobTransferService ??= BlobTransferService(relay);
+  return _blobTransferService!;
 });
 
 /// Connection state provider
