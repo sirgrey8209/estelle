@@ -12,6 +12,7 @@ import 'result_info.dart';
 import 'streaming_bubble.dart';
 import 'working_indicator.dart';
 import 'uploading_image_bubble.dart';
+import 'system_divider.dart';
 import '../viewers/file_viewer_dialog.dart';
 
 class MessageList extends ConsumerStatefulWidget {
@@ -260,6 +261,7 @@ class _MessageListState extends ConsumerState<MessageList> {
                         content: msg.content,
                       ),
                       FileAttachmentMessage msg => _FileAttachmentBubble(message: msg),
+                      ClaudeAbortedMessage msg => ClaudeAbortedDivider(message: msg),
                     },
                   ),
                 );

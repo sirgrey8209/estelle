@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../data/models/claude_usage.dart';
@@ -23,17 +24,26 @@ class ClaudeUsageNotifier extends StateNotifier<ClaudeUsage> {
   }
 
   void _listenToMessages() {
-    _subscription = _ref.read(relayServiceProvider).messageStream.listen((data) {
-      final type = data['type'] as String?;
-      // pylon_status에서 사용량 받기
-      if (type == 'pylon_status') {
-        final payload = data['payload'] as Map<String, dynamic>?;
-        final claudeUsage = payload?['claudeUsage'] as Map<String, dynamic>?;
-        if (claudeUsage != null) {
-          state = ClaudeUsage.fromPylonStatus(claudeUsage);
+    _subscription = _ref.read(relayServiceProvider).messageStream.listen(
+      (data) {
+        try {
+          final type = data['type'] as String?;
+          // pylon_status에서 사용량 받기
+          if (type == 'pylon_status') {
+            final payload = data['payload'] as Map<String, dynamic>?;
+            final claudeUsage = payload?['claudeUsage'] as Map<String, dynamic>?;
+            if (claudeUsage != null) {
+              state = ClaudeUsage.fromPylonStatus(claudeUsage);
+            }
+          }
+        } catch (e, stackTrace) {
+          debugPrint('[ClaudeUsage] Exception: $e\n$stackTrace');
         }
-      }
-    });
+      },
+      onError: (error, stackTrace) {
+        debugPrint('[ClaudeUsage] Stream error: $error\n$stackTrace');
+      },
+    );
   }
 
   @override
@@ -70,31 +80,40 @@ class DeployTrackingNotifier extends StateNotifier<DeployStatus> {
 
   void _listenToMessages() {
     _subscription =
-        _ref.read(relayServiceProvider).messageStream.listen((data) {
-      final type = data['type'] as String?;
-      final payload = data['payload'] as Map<String, dynamic>?;
+        _ref.read(relayServiceProvider).messageStream.listen(
+      (data) {
+        try {
+          final type = data['type'] as String?;
+          final payload = data['payload'] as Map<String, dynamic>?;
 
-      switch (type) {
-        case 'deploy_status':
-          _handleDeployStatus(payload);
-          break;
-        case 'deploy_ready':
-          _handleDeployReady(payload);
-          break;
-        case 'deploy_ack_received':
-          _handleAckReceived(payload);
-          break;
-        case 'deploy_restarting':
-          _handleDeployRestarting(payload);
-          break;
-        case 'deploy_error':
-          _handleDeployError(payload);
-          break;
-        case 'deploy_log':
-          _handleDeployLog(payload);
-          break;
-      }
-    });
+          switch (type) {
+            case 'deploy_status':
+              _handleDeployStatus(payload);
+              break;
+            case 'deploy_ready':
+              _handleDeployReady(payload);
+              break;
+            case 'deploy_ack_received':
+              _handleAckReceived(payload);
+              break;
+            case 'deploy_restarting':
+              _handleDeployRestarting(payload);
+              break;
+            case 'deploy_error':
+              _handleDeployError(payload);
+              break;
+            case 'deploy_log':
+              _handleDeployLog(payload);
+              break;
+          }
+        } catch (e, stackTrace) {
+          debugPrint('[DeployTracking] Exception: $e\n$stackTrace');
+        }
+      },
+      onError: (error, stackTrace) {
+        debugPrint('[DeployTracking] Stream error: $error\n$stackTrace');
+      },
+    );
   }
 
   void _handleDeployStatus(Map<String, dynamic>? payload) {
@@ -360,16 +379,25 @@ class DeployVersionNotifier extends StateNotifier<DeployVersionInfo> {
 
   void _listenToMessages() {
     _subscription =
-        _ref.read(relayServiceProvider).messageStream.listen((data) {
-      final type = data['type'] as String?;
-      final payload = data['payload'] as Map<String, dynamic>?;
+        _ref.read(relayServiceProvider).messageStream.listen(
+      (data) {
+        try {
+          final type = data['type'] as String?;
+          final payload = data['payload'] as Map<String, dynamic>?;
 
-      if (type == 'version_check_result') {
-        _handleVersionCheckResult(payload);
-      } else if (type == 'app_update_result') {
-        _handleAppUpdateResult(payload);
-      }
-    });
+          if (type == 'version_check_result') {
+            _handleVersionCheckResult(payload);
+          } else if (type == 'app_update_result') {
+            _handleAppUpdateResult(payload);
+          }
+        } catch (e, stackTrace) {
+          debugPrint('[DeployVersion] Exception: $e\n$stackTrace');
+        }
+      },
+      onError: (error, stackTrace) {
+        debugPrint('[DeployVersion] Stream error: $error\n$stackTrace');
+      },
+    );
   }
 
   void _handleVersionCheckResult(Map<String, dynamic>? payload) {

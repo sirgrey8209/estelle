@@ -52,6 +52,8 @@ class Pylon {
     this.blobHandler = null;
     // 세션별 시청자 추적: Map<sessionId, Set<clientDeviceId>>
     this.sessionViewers = new Map();
+    // 앱별 unread 알림 전송 기록: Map<appId, Set<conversationId>>
+    this.appUnreadSent = new Map();
     // 대화별 pending 파일: Map<conversationId, Map<fileId, {fileId, path, filename, thumbnail}>>
     this.pendingFiles = new Map();
     // Claude 누적 사용량
@@ -122,6 +124,13 @@ class Pylon {
     await this.checkAndUpdate();
 
     workspaceStore.initialize();
+
+    // 시작 시 working/waiting 상태인 대화들을 초기화하고 히스토리에 session_ended 기록
+    const resetConversationIds = workspaceStore.resetActiveConversations();
+    for (const conversationId of resetConversationIds) {
+      messageStore.addClaudeAborted(conversationId, 'session_ended');
+      this.log(`[Startup] Added session_ended to history: ${conversationId}`);
+    }
 
     this.claudeManager = new ClaudeManager((sessionId, event) => {
       this.sendClaudeEvent(sessionId, event);
@@ -1048,9 +1057,9 @@ class Pylon {
     }
 
     if (type === 'claude_set_permission_mode') {
-      const { workspaceId, conversationId, mode } = payload || {};
-      if (workspaceId && conversationId && mode) {
-        ClaudeManager.setPermissionMode(workspaceId, conversationId, mode);
+      const { conversationId, mode } = payload || {};
+      if (conversationId && mode) {
+        ClaudeManager.setPermissionMode(conversationId, mode);
       }
       return;
     }
@@ -1177,6 +1186,13 @@ class Pylon {
       this.sessionViewers.set(sessionId, new Set());
     }
     this.sessionViewers.get(sessionId).add(clientId);
+
+    // appUnreadSent 초기화 (없으면 생성) 및 해당 대화 제거 (다시 알림 가능하게)
+    if (!this.appUnreadSent.has(clientId)) {
+      this.appUnreadSent.set(clientId, new Set());
+    }
+    this.appUnreadSent.get(clientId).delete(sessionId);
+
     this.log(`Client ${clientId} now viewing session ${sessionId}`);
   }
 
@@ -1224,6 +1240,9 @@ class Pylon {
         break;
       }
     }
+
+    // appUnreadSent에서도 제거
+    this.appUnreadSent.delete(clientId);
   }
 
   /**
@@ -1412,6 +1431,52 @@ class Pylon {
         broadcast: 'clients'
       });
     }
+
+    // 안 보고 있는 앱에게 unread 알림 (1회만)
+    // textComplete, toolComplete, result 등 실제 콘텐츠 이벤트일 때만
+    if (['textComplete', 'toolComplete', 'result', 'claudeAborted'].includes(event.type)) {
+      this.sendUnreadToNonViewers(sessionId, viewers);
+    }
+  }
+
+  /**
+   * 대화를 보고 있지 않은 앱에게 unread 알림 전송 (1회만)
+   */
+  sendUnreadToNonViewers(conversationId, viewers) {
+    const unreadTargets = [];
+
+    for (const [appId, unreadSent] of this.appUnreadSent) {
+      // 보고 있는 앱은 스킵
+      if (viewers.has(appId)) continue;
+
+      // 이미 unread 알림 보낸 앱은 스킵
+      if (unreadSent.has(conversationId)) continue;
+
+      // unread 알림 대상에 추가
+      unreadTargets.push(appId);
+      unreadSent.add(conversationId);
+    }
+
+    if (unreadTargets.length > 0) {
+      // workspaceStore에 unread 상태 저장
+      const workspaceId = workspaceStore.findWorkspaceByConversation(conversationId);
+      if (workspaceId) {
+        workspaceStore.updateConversationUnread(workspaceId, conversationId, true);
+      }
+
+      // 대상 앱들에게 unread 알림 전송
+      this.send({
+        type: 'conversation_status',
+        payload: {
+          deviceId: this.deviceId,
+          conversationId,
+          status: 'unread'
+        },
+        to: unreadTargets
+      });
+
+      this.log(`Sent unread notification for ${conversationId} to ${unreadTargets.length} clients`);
+    }
   }
 
   // ============ Flutter 이벤트 전송 ============
@@ -1467,6 +1532,10 @@ class Pylon {
           num_turns: event.num_turns,
           usage: event.usage
         });
+        break;
+
+      case 'claudeAborted':
+        messageStore.addClaudeAborted(sessionId, event.reason);
         break;
     }
   }

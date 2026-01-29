@@ -12,7 +12,7 @@
  * - permission_request: 권한 요청 { toolName, toolInput, toolUseId }
  * - result: 처리 완료 { subtype, duration_ms, total_cost_usd, num_turns, usage }
  * - error: 에러 { error }
- * - state: 상태 변경 (idle/working/permission)
+ * - state: 상태 변경 (idle/working/waiting)
  */
 
 import { query } from '@anthropic-ai/claude-agent-sdk';
@@ -84,25 +84,23 @@ class ClaudeManager {
   /**
    * 퍼미션 모드 설정 (대화별) - workspaceStore에 영속 저장
    */
-  static setPermissionMode(workspaceId, conversationId, mode) {
-    workspaceStore.setConversationPermissionMode(workspaceId, conversationId, mode);
+  static setPermissionMode(conversationId, mode) {
+    workspaceStore.setConversationPermissionMode(conversationId, mode);
     console.log(`[ClaudeManager] Permission mode for ${conversationId}: ${mode}`);
   }
 
-  static getPermissionMode(workspaceId, conversationId) {
-    return workspaceStore.getConversationPermissionMode(workspaceId, conversationId);
+  static getPermissionMode(conversationId) {
+    return workspaceStore.getConversationPermissionMode(conversationId);
   }
 
   /**
    * Claude에게 메시지 전송
    * @param {string} sessionId - conversationId
    * @param {string} message - 사용자 메시지
-   * @param {Object} options - 옵션 { workspaceId, workingDir, claudeSessionId }
+   * @param {Object} options - 옵션 { workingDir, claudeSessionId }
    */
   async sendMessage(sessionId, message, options = {}) {
-    const { workspaceId, workingDir, claudeSessionId } = options;
-    // workspaceId 저장 (퍼미션 모드 조회용)
-    this.currentWorkspaceId = workspaceId;
+    const { workingDir, claudeSessionId } = options;
 
     if (!workingDir) {
       this.emitEvent(sessionId, { type: 'error', error: `Working directory not found for: ${sessionId}` });
@@ -430,7 +428,7 @@ class ClaudeManager {
    */
   async handlePermission(sessionId, toolName, input) {
     // 해당 대화의 퍼미션 모드 가져오기
-    const mode = ClaudeManager.getPermissionMode(this.currentWorkspaceId, sessionId);
+    const mode = ClaudeManager.getPermissionMode(sessionId);
 
     // bypassPermissions: 모든 도구 자동 허용 (AskUserQuestion 제외)
     if (mode === 'bypassPermissions' && toolName !== 'AskUserQuestion') {
@@ -490,7 +488,7 @@ class ClaudeManager {
         toolUseId
       };
       this.pendingEvents.set(sessionId, permEvent);
-      this.emitEvent(sessionId, { type: 'state', state: 'permission' });
+      this.emitEvent(sessionId, { type: 'state', state: 'waiting' });
       this.emitEvent(sessionId, permEvent);
     });
   }
@@ -521,10 +519,13 @@ class ClaudeManager {
     // 3. pending 이벤트 삭제 (재진입 시 오래된 퍼미션 표시 방지)
     this.pendingEvents.delete(sessionId);
 
-    // 4. 상태 강제 변경
+    // 4. 중단 메시지 전송 (실행 중지됨)
+    this.emitEvent(sessionId, { type: 'claudeAborted', reason: 'user' });
+
+    // 5. 상태 강제 변경
     this.emitEvent(sessionId, { type: 'state', state: 'idle' });
 
-    // 5. 대기 중인 권한 요청 모두 거부
+    // 6. 대기 중인 권한 요청 모두 거부
     for (const [id, pending] of this.pendingPermissions) {
       try {
         pending.resolve({ behavior: 'deny', message: 'Stopped' });

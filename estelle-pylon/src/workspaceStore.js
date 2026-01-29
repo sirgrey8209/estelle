@@ -308,23 +308,27 @@ const workspaceStore = {
 
   // ========== 대화별 퍼미션 모드 ==========
 
-  getConversationPermissionMode(workspaceId, conversationId) {
-    const conv = this.getConversation(workspaceId, conversationId);
-    return conv?.permissionMode || 'default';
+  getConversationPermissionMode(conversationId) {
+    const store = this.load();
+    for (const workspace of store.workspaces) {
+      const conv = workspace.conversations.find(c => c.conversationId === conversationId);
+      if (conv) return conv.permissionMode || 'default';
+    }
+    return 'default';
   },
 
-  setConversationPermissionMode(workspaceId, conversationId, mode) {
+  setConversationPermissionMode(conversationId, mode) {
     const store = this.load();
-    const workspace = store.workspaces.find(w => w.workspaceId === workspaceId);
-    if (!workspace) return false;
-
-    const conv = workspace.conversations.find(c => c.conversationId === conversationId);
-    if (!conv) return false;
-
-    conv.permissionMode = mode;
-    this.save(store);
-    console.log(`[WorkspaceStore] Conversation ${conversationId} permission mode: ${mode}`);
-    return true;
+    for (const workspace of store.workspaces) {
+      const conv = workspace.conversations.find(c => c.conversationId === conversationId);
+      if (conv) {
+        conv.permissionMode = mode;
+        this.save(store);
+        console.log(`[WorkspaceStore] Conversation ${conversationId} permission mode: ${mode}`);
+        return true;
+      }
+    }
+    return false;
   },
 
   // ========== Utility ==========
@@ -349,6 +353,31 @@ const workspaceStore = {
       activeWorkspaceId: store.activeWorkspaceId,
       activeConversationId: store.activeConversationId
     };
+  },
+
+  /**
+   * 시작 시 working/waiting 상태인 대화들을 idle로 초기화
+   * @returns {Array} 초기화된 대화 ID 목록
+   */
+  resetActiveConversations() {
+    const store = this.load();
+    const resetConversationIds = [];
+
+    for (const workspace of store.workspaces) {
+      for (const conv of workspace.conversations) {
+        if (conv.status === 'working' || conv.status === 'waiting') {
+          conv.status = 'idle';
+          resetConversationIds.push(conv.conversationId);
+          console.log(`[WorkspaceStore] Reset conversation status: ${conv.name} (${conv.conversationId})`);
+        }
+      }
+    }
+
+    if (resetConversationIds.length > 0) {
+      this.save(store);
+    }
+
+    return resetConversationIds;
   }
 };
 

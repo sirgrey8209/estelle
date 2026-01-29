@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/constants/colors.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../data/models/workspace_info.dart';
 import '../../../state/providers/workspace_provider.dart';
 import '../../../state/providers/claude_provider.dart';
@@ -9,6 +8,7 @@ import '../../../state/providers/relay_provider.dart';
 import 'message_list.dart';
 import 'input_bar.dart';
 import '../requests/request_bar.dart';
+import '../common/status_dot.dart';
 
 class ChatArea extends ConsumerWidget {
   final bool showHeader;
@@ -51,8 +51,6 @@ class _ChatHeader extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final claudeState = ref.watch(claudeStateProvider);
-
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: const BoxDecoration(
@@ -84,7 +82,10 @@ class _ChatHeader extends ConsumerWidget {
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      _ConversationStatusDot(conversation: conversation!),
+                      StatusDot(
+                        status: conversation!.dotStatus,
+                        margin: const EdgeInsets.only(left: 6),
+                      ),
                     ],
                   ),
                 Text(
@@ -262,42 +263,6 @@ class _SessionMenuButton extends ConsumerWidget {
   }
 }
 
-class _StateBadge extends StatelessWidget {
-  final String state;
-
-  const _StateBadge({required this.state});
-
-  @override
-  Widget build(BuildContext context) {
-    Color textColor;
-    switch (state) {
-      case 'working':
-        textColor = NordColors.nord13;
-        break;
-      case 'permission':
-        textColor = NordColors.nord12;
-        break;
-      default:
-        textColor = NordColors.nord3;
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      decoration: BoxDecoration(
-        color: NordColors.nord2,
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Text(
-        state,
-        style: TextStyle(
-          fontSize: 12,
-          color: textColor,
-        ),
-      ),
-    );
-  }
-}
-
 class _BottomArea extends ConsumerWidget {
   const _BottomArea();
 
@@ -336,109 +301,5 @@ class _NoItemSelected extends StatelessWidget {
         ),
       ),
     );
-  }
-}
-
-/// 대화 상태 표시 점 (working/waiting 상태일 때 점멸)
-class _ConversationStatusDot extends StatefulWidget {
-  final ConversationInfo conversation;
-
-  const _ConversationStatusDot({required this.conversation});
-
-  @override
-  State<_ConversationStatusDot> createState() => _ConversationStatusDotState();
-}
-
-class _ConversationStatusDotState extends State<_ConversationStatusDot> with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _animation;
-
-  String get _status {
-    if (widget.conversation.hasError) return 'error';
-    if (widget.conversation.isWorking || widget.conversation.isWaiting) return 'working';
-    if (widget.conversation.unread) return 'unread';
-    return 'idle';
-  }
-
-  bool get _shouldBlink => _status == 'working';
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1200),
-    );
-    _animation = Tween<double>(begin: 0.3, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
-    );
-    _updateAnimation();
-  }
-
-  @override
-  void didUpdateWidget(_ConversationStatusDot oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.conversation.status != widget.conversation.status) {
-      _updateAnimation();
-    }
-  }
-
-  void _updateAnimation() {
-    if (_shouldBlink) {
-      _controller.repeat(reverse: true);
-    } else {
-      _controller.stop();
-      _controller.value = 1.0;
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final color = _getColor();
-    if (color == null) return const SizedBox.shrink();
-
-    if (_shouldBlink) {
-      return AnimatedBuilder(
-        animation: _animation,
-        builder: (context, child) => Container(
-          width: 8,
-          height: 8,
-          margin: const EdgeInsets.only(left: 6),
-          decoration: BoxDecoration(
-            color: color.withOpacity(_animation.value),
-            shape: BoxShape.circle,
-          ),
-        ),
-      );
-    }
-
-    return Container(
-      width: 8,
-      height: 8,
-      margin: const EdgeInsets.only(left: 6),
-      decoration: BoxDecoration(
-        color: color,
-        shape: BoxShape.circle,
-      ),
-    );
-  }
-
-  Color? _getColor() {
-    switch (_status) {
-      case 'error':
-        return AppColors.statusError;
-      case 'working':
-        return AppColors.statusWorking;
-      case 'unread':
-        return AppColors.statusSuccess;
-      default:
-        return null;
-    }
   }
 }

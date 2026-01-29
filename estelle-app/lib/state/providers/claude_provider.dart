@@ -47,10 +47,40 @@ class ClaudeMessagesNotifier extends StateNotifier<List<ClaudeMessage>> {
   final Map<String, List<PendingRequest>> _conversationRequestsCache = {};
 
   ClaudeMessagesNotifier(this._relay, this._ref) : super([]) {
-    _relay.messageStream.listen(_handleMessage);
+    _relay.messageStream.listen(
+      _handleMessage,
+      onError: (error, stackTrace) {
+        debugPrint('[Claude] Stream error: $error');
+        debugPrint('[Claude] Stack trace: $stackTrace');
+        _addErrorToChat('[Stream Error] $error');
+      },
+    );
+  }
+
+  /// 채팅창에 에러 메시지 추가
+  void _addErrorToChat(String error) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    state = [
+      ...state,
+      ErrorMessage(
+        id: '$now-internal-error',
+        error: error,
+        timestamp: now,
+      ),
+    ];
   }
 
   void _handleMessage(Map<String, dynamic> data) {
+    try {
+      _handleMessageInternal(data);
+    } catch (e, stackTrace) {
+      debugPrint('[Claude] Exception in _handleMessage: $e');
+      debugPrint('[Claude] Stack trace: $stackTrace');
+      _addErrorToChat('[Message Handler Error] $e');
+    }
+  }
+
+  void _handleMessageInternal(Map<String, dynamic> data) {
     final type = data['type'] as String?;
 
     // conversation_sync_result 처리
@@ -533,6 +563,22 @@ class ClaudeMessagesNotifier extends StateNotifier<List<ClaudeMessage>> {
         ];
         break;
 
+      case 'claudeAborted':
+        _flushTextBuffer();
+        final reason = event['reason'] as String? ?? 'user';
+        _ref.read(claudeStateProvider.notifier).state = 'idle';
+        _ref.read(isThinkingProvider.notifier).state = false;
+        _ref.read(workStartTimeProvider.notifier).state = null;
+        state = [
+          ...state,
+          ClaudeAbortedMessage(
+            id: '$now-aborted',
+            reason: reason,
+            timestamp: now,
+          ),
+        ];
+        break;
+
       case 'fileAttachment':
         print('[Claude] Handling fileAttachment event');
         final fileData = event['file'] as Map<String, dynamic>?;
@@ -610,6 +656,17 @@ class ClaudeMessagesNotifier extends StateNotifier<List<ClaudeMessage>> {
           timestamp: now,
         ));
         _conversationMessagesCache[conversationId] = saved;
+        break;
+
+      case 'claudeAborted':
+        final reason = event['reason'] as String? ?? 'user';
+        final savedAbort = _conversationMessagesCache[conversationId]?.toList() ?? [];
+        savedAbort.add(ClaudeAbortedMessage(
+          id: '$now-aborted',
+          reason: reason,
+          timestamp: now,
+        ));
+        _conversationMessagesCache[conversationId] = savedAbort;
         break;
 
       case 'permission_request':

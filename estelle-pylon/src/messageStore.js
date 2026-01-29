@@ -324,6 +324,18 @@ class MessageStore {
   }
 
   /**
+   * Claude 중단 메시지 추가
+   * @param {string} reason - 중단 사유 (user, session_ended)
+   */
+  addClaudeAborted(sessionId, reason) {
+    return this.addMessage(sessionId, {
+      role: 'system',
+      type: 'claudeAborted',
+      reason: reason
+    });
+  }
+
+  /**
    * 세션 메시지 초기화
    */
   clear(sessionId) {

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../data/models/workspace_info.dart';
 import '../../../state/providers/workspace_provider.dart';
 import '../../../core/theme/app_colors.dart';
+import '../common/status_dot.dart';
 
 enum _EditMode { none, rename, delete }
 
@@ -269,7 +270,7 @@ class _WorkspaceHeaderState extends State<_WorkspaceHeader> with SingleTickerPro
             if (widget.priorityStatus != 'idle' && !showActions && !_isLongPressing)
               Padding(
                 padding: const EdgeInsets.only(right: 4),
-                child: _StatusDot(status: widget.priorityStatus),
+                child: StatusDot(status: widget.priorityStatus),
               ),
 
             // 롱프레스 진행 표시
@@ -474,7 +475,7 @@ class _ConversationItemState extends ConsumerState<_ConversationItem> with Singl
                 size: 14,
               ),
             ] else
-              _StatusDot(status: _getConversationStatus()),
+              StatusDot(status: _getConversationStatus()),
           ],
         ),
       ),
@@ -482,10 +483,7 @@ class _ConversationItemState extends ConsumerState<_ConversationItem> with Singl
   }
 
   String _getConversationStatus() {
-    if (widget.conversation.hasError) return 'error';
-    if (widget.conversation.isWorking || widget.conversation.isWaiting) return 'working';
-    if (widget.conversation.unread) return 'unread';
-    return 'idle';
+    return widget.conversation.dotStatus;
   }
 
   void _confirmRename() {
@@ -558,7 +556,7 @@ class _TaskItem extends ConsumerWidget {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            _StatusDot(status: _getTaskStatus()),
+            StatusDot(status: _getTaskStatus()),
           ],
         ),
       ),
@@ -942,105 +940,3 @@ class _DeleteConfirmRow extends StatelessWidget {
   }
 }
 
-/// 상태 표시 점 (working/permission 상태일 때 점멸)
-class _StatusDot extends StatefulWidget {
-  final String status;
-
-  const _StatusDot({required this.status});
-
-  @override
-  State<_StatusDot> createState() => _StatusDotState();
-}
-
-class _StatusDotState extends State<_StatusDot> with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _animation;
-
-  bool get _shouldBlink =>
-      widget.status == 'working' ||
-      widget.status == 'waiting' ||
-      widget.status == 'permission';
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1200),
-    );
-    _animation = Tween<double>(begin: 0.3, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
-    );
-    _updateAnimation();
-  }
-
-  @override
-  void didUpdateWidget(_StatusDot oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.status != widget.status) {
-      _updateAnimation();
-    }
-  }
-
-  void _updateAnimation() {
-    if (_shouldBlink) {
-      _controller.repeat(reverse: true);
-    } else {
-      _controller.stop();
-      _controller.value = 1.0;
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final color = _getColor();
-    if (color == null) return const SizedBox.shrink();
-
-    if (_shouldBlink) {
-      return AnimatedBuilder(
-        animation: _animation,
-        builder: (context, child) => Container(
-          width: 8,
-          height: 8,
-          margin: const EdgeInsets.only(left: 4),
-          decoration: BoxDecoration(
-            color: color.withOpacity(_animation.value),
-            shape: BoxShape.circle,
-          ),
-        ),
-      );
-    }
-
-    return Container(
-      width: 8,
-      height: 8,
-      margin: const EdgeInsets.only(left: 4),
-      decoration: BoxDecoration(
-        color: color,
-        shape: BoxShape.circle,
-      ),
-    );
-  }
-
-  Color? _getColor() {
-    switch (widget.status) {
-      case 'error':
-      case 'permission':
-      case 'waiting':
-        return AppColors.statusError;
-      case 'working':
-        return AppColors.statusWorking;
-      case 'unread':
-      case 'done':
-        return AppColors.statusSuccess;
-      default:
-        return null;
-    }
-  }
-}

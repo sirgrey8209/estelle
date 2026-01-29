@@ -80,28 +80,37 @@ class _DeployDialogState extends ConsumerState<DeployDialog> {
   }
 
   void _listenToMessages() {
-    _messageSubscription = ref.read(relayServiceProvider).messageStream.listen((data) {
-      final type = data['type'] as String?;
-      final payload = data['payload'] as Map<String, dynamic>?;
+    _messageSubscription = ref.read(relayServiceProvider).messageStream.listen(
+      (data) {
+        try {
+          final type = data['type'] as String?;
+          final payload = data['payload'] as Map<String, dynamic>?;
 
-      switch (type) {
-        case 'deploy_status':
-          _handleDeployStatus(payload);
-          break;
-        case 'deploy_ready':
-          _handleDeployReady(payload);
-          break;
-        case 'deploy_ack_received':
-          _handleAckReceived(payload);
-          break;
-        case 'deploy_restarting':
-          _handleDeployRestarting(payload);
-          break;
-        case 'deploy_error':
-          _handleDeployError(payload);
-          break;
-      }
-    });
+          switch (type) {
+            case 'deploy_status':
+              _handleDeployStatus(payload);
+              break;
+            case 'deploy_ready':
+              _handleDeployReady(payload);
+              break;
+            case 'deploy_ack_received':
+              _handleAckReceived(payload);
+              break;
+            case 'deploy_restarting':
+              _handleDeployRestarting(payload);
+              break;
+            case 'deploy_error':
+              _handleDeployError(payload);
+              break;
+          }
+        } catch (e, stackTrace) {
+          debugPrint('[DeployDialog] Exception: $e\n$stackTrace');
+        }
+      },
+      onError: (error, stackTrace) {
+        debugPrint('[DeployDialog] Stream error: $error\n$stackTrace');
+      },
+    );
   }
 
   void _handleDeployStatus(Map<String, dynamic>? payload) {

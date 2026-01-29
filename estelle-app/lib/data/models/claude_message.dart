@@ -223,6 +223,46 @@ class ErrorMessage implements ClaudeMessage {
   }
 }
 
+/// Claude 프로세스 중단 메시지 (빨간 구분선으로 표시)
+/// - 사용자가 Stop 버튼을 눌렀을 때
+/// - Pylon 재시작으로 세션이 끊겼을 때
+class ClaudeAbortedMessage implements ClaudeMessage {
+  @override
+  final String id;
+  final String reason; // user, session_ended
+  @override
+  final int timestamp;
+
+  const ClaudeAbortedMessage({
+    required this.id,
+    required this.reason,
+    required this.timestamp,
+  });
+
+  String get displayText {
+    switch (reason) {
+      case 'user':
+        return '실행 중지됨';
+      case 'session_ended':
+        return '세션 종료됨';
+      default:
+        return '중단됨';
+    }
+  }
+
+  ClaudeAbortedMessage copyWith({
+    String? id,
+    String? reason,
+    int? timestamp,
+  }) {
+    return ClaudeAbortedMessage(
+      id: id ?? this.id,
+      reason: reason ?? this.reason,
+      timestamp: timestamp ?? this.timestamp,
+    );
+  }
+}
+
 /// 파일 첨부 정보 (Claude → 사용자)
 class FileAttachmentInfo {
   final String path;      // Pylon에서의 파일 경로

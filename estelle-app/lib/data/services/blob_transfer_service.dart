@@ -129,27 +129,36 @@ class BlobTransferService {
   }
 
   void _listenToMessages() {
-    _messageSubscription = _relayService.messageStream.listen((data) {
-      final type = data['type'] as String?;
+    _messageSubscription = _relayService.messageStream.listen(
+      (data) {
+        try {
+          final type = data['type'] as String?;
 
-      switch (type) {
-        case 'blob_start':
-          _handleBlobStart(data);
-          break;
-        case 'blob_chunk':
-          _handleBlobChunk(data);
-          break;
-        case 'blob_end':
-          _handleBlobEnd(data);
-          break;
-        case 'blob_ack':
-          _handleBlobAck(data);
-          break;
-        case 'blob_upload_complete':
-          _handleBlobUploadComplete(data);
-          break;
-      }
-    });
+          switch (type) {
+            case 'blob_start':
+              _handleBlobStart(data);
+              break;
+            case 'blob_chunk':
+              _handleBlobChunk(data);
+              break;
+            case 'blob_end':
+              _handleBlobEnd(data);
+              break;
+            case 'blob_ack':
+              _handleBlobAck(data);
+              break;
+            case 'blob_upload_complete':
+              _handleBlobUploadComplete(data);
+              break;
+          }
+        } catch (e, stackTrace) {
+          _log('BLOB', 'Exception in message handler: $e\n$stackTrace');
+        }
+      },
+      onError: (error, stackTrace) {
+        _log('BLOB', 'Stream error: $error\n$stackTrace');
+      },
+    );
   }
 
   // ============ 업로드 (Client → Pylon) ============

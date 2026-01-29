@@ -44,20 +44,29 @@ class _TaskDetailViewState extends ConsumerState<TaskDetailView>
     );
 
     // 응답은 Provider에서 처리
-    relayService.messageStream.listen((data) {
-      if (data['type'] == 'task_get_result') {
-        final payload = data['payload'] as Map<String, dynamic>?;
-        if (payload?['task'] != null) {
-          final taskData = payload!['task'] as Map<String, dynamic>;
-          if (taskData['id'] == task.id) {
-            setState(() {
-              _fullTask = TaskInfo.fromJson(taskData);
-              _isLoading = false;
-            });
+    relayService.messageStream.listen(
+      (data) {
+        try {
+          if (data['type'] == 'task_get_result') {
+            final payload = data['payload'] as Map<String, dynamic>?;
+            if (payload?['task'] != null) {
+              final taskData = payload!['task'] as Map<String, dynamic>;
+              if (taskData['id'] == task.id) {
+                setState(() {
+                  _fullTask = TaskInfo.fromJson(taskData);
+                  _isLoading = false;
+                });
+              }
+            }
           }
+        } catch (e, stackTrace) {
+          debugPrint('[TaskDetailView] Exception: $e\n$stackTrace');
         }
-      }
-    });
+      },
+      onError: (error, stackTrace) {
+        debugPrint('[TaskDetailView] Stream error: $error\n$stackTrace');
+      },
+    );
   }
 
   @override

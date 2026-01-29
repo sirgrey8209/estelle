@@ -55,10 +55,23 @@ class PylonWorkspacesNotifier extends StateNotifier<Map<int, PylonWorkspaces>> {
   bool _autoSelectDone = false;
 
   PylonWorkspacesNotifier(this._relay, this._ref) : super({}) {
-    _relay.messageStream.listen(_handleMessage);
+    _relay.messageStream.listen(
+      _handleMessage,
+      onError: (error, stackTrace) {
+        debugPrint('[Workspace] Stream error: $error\n$stackTrace');
+      },
+    );
   }
 
   void _handleMessage(Map<String, dynamic> data) {
+    try {
+      _handleMessageInternal(data);
+    } catch (e, stackTrace) {
+      debugPrint('[Workspace] Exception in _handleMessage: $e\n$stackTrace');
+    }
+  }
+
+  void _handleMessageInternal(Map<String, dynamic> data) {
     final type = data['type'] as String?;
     final payload = data['payload'] as Map<String, dynamic>?;
 
@@ -313,12 +326,15 @@ class PylonWorkspacesNotifier extends StateNotifier<Map<int, PylonWorkspaces>> {
 
     final deviceId = payload['deviceId'] as int?;
     final conversationId = payload['conversationId'] as String?;
-    final status = payload['status'] as String?;
+    final statusStr = payload['status'] as String?;
 
-    if (deviceId == null || conversationId == null || status == null) return;
+    if (deviceId == null || conversationId == null || statusStr == null) return;
 
     final pylon = state[deviceId];
     if (pylon == null) return;
+
+    // 문자열을 enum으로 변환
+    final status = ConversationStatus.fromString(statusStr);
 
     // 워크스페이스 내 대화 상태 업데이트
     final updatedWorkspaces = pylon.workspaces.map((ws) {
@@ -569,28 +585,37 @@ class FolderListNotifier extends StateNotifier<FolderListState> {
   final RelayService _relay;
 
   FolderListNotifier(this._relay) : super(FolderListState.initial()) {
-    _relay.messageStream.listen(_handleMessage);
+    _relay.messageStream.listen(
+      _handleMessage,
+      onError: (error, stackTrace) {
+        debugPrint('[FolderList] Stream error: $error\n$stackTrace');
+      },
+    );
   }
 
   void _handleMessage(Map<String, dynamic> data) {
-    if (data['type'] != 'folder_list_result') return;
+    try {
+      if (data['type'] != 'folder_list_result') return;
 
-    final payload = data['payload'] as Map<String, dynamic>?;
-    if (payload == null) return;
+      final payload = data['payload'] as Map<String, dynamic>?;
+      if (payload == null) return;
 
-    final success = payload['success'] as bool? ?? false;
-    final path = payload['path'] as String? ?? '';
-    final folders = (_safeList(payload['folders']))
-        ?.map((f) => f as String)
-        .toList() ?? [];
-    final error = payload['error'] as String?;
+      final success = payload['success'] as bool? ?? false;
+      final path = payload['path'] as String? ?? '';
+      final folders = (_safeList(payload['folders']))
+          ?.map((f) => f as String)
+          .toList() ?? [];
+      final error = payload['error'] as String?;
 
-    state = FolderListState(
-      isLoading: false,
-      path: path,
-      folders: folders,
-      error: success ? null : error,
-    );
+      state = FolderListState(
+        isLoading: false,
+        path: path,
+        folders: folders,
+        error: success ? null : error,
+      );
+    } catch (e, stackTrace) {
+      debugPrint('[FolderList] Exception in _handleMessage: $e\n$stackTrace');
+    }
   }
 
   void requestFolderList(int deviceId, {String? path}) {

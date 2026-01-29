@@ -5,6 +5,75 @@ List<dynamic>? _safeList(dynamic value) {
   return null;
 }
 
+/// 대화 상태 enum
+///
+/// 우선순위 (높은 것이 우선):
+/// 1. error - 에러 발생
+/// 2. waiting - 권한 요청 대기 중
+/// 3. working - 작업 중
+/// 4. unread - 읽지 않은 메시지 있음
+/// 5. idle - 기본 상태
+enum ConversationStatus {
+  idle,
+  unread,
+  working,
+  waiting,
+  error;
+
+  /// JSON 문자열에서 변환
+  static ConversationStatus fromString(String? value) {
+    switch (value) {
+      case 'error':
+        return ConversationStatus.error;
+      case 'waiting':
+        return ConversationStatus.waiting;
+      case 'working':
+        return ConversationStatus.working;
+      case 'unread':
+        return ConversationStatus.unread;
+      default:
+        return ConversationStatus.idle;
+    }
+  }
+
+  /// StatusDot용 문자열 반환
+  String get dotStatus {
+    switch (this) {
+      case ConversationStatus.error:
+        return 'error';
+      case ConversationStatus.waiting:
+        return 'waiting';
+      case ConversationStatus.working:
+        return 'working';
+      case ConversationStatus.unread:
+        return 'unread';
+      case ConversationStatus.idle:
+        return 'idle';
+    }
+  }
+
+  /// 우선순위 (높을수록 우선)
+  int get priority {
+    switch (this) {
+      case ConversationStatus.error:
+        return 4;
+      case ConversationStatus.waiting:
+        return 3;
+      case ConversationStatus.working:
+        return 2;
+      case ConversationStatus.unread:
+        return 1;
+      case ConversationStatus.idle:
+        return 0;
+    }
+  }
+
+  /// 두 상태 중 우선순위가 높은 것 반환
+  static ConversationStatus higher(ConversationStatus a, ConversationStatus b) {
+    return a.priority >= b.priority ? a : b;
+  }
+}
+
 /// 워크스페이스 정보 모델
 class WorkspaceInfo {
   final int deviceId; // Pylon의 기기 ID
@@ -69,30 +138,33 @@ class WorkspaceInfo {
   }
 
   /// 워크스페이스 내 최고 우선순위 상태 (접힌 상태에서 표시용)
-  /// 우선순위: error > working > unread > idle
+  /// 우선순위: error > waiting > working > unread > idle
   String get priorityStatus {
     // 1. 에러/실패 체크
     for (final task in tasks) {
       if (task.status == 'failed') return 'error';
     }
     for (final conv in conversations) {
-      if (conv.status == 'error') return 'error';
+      if (conv.status == ConversationStatus.error) return 'error';
     }
 
-    // 2. 작업 중 체크
+    // 2. 대기 중 체크 (권한 요청 등)
+    for (final conv in conversations) {
+      if (conv.status == ConversationStatus.waiting) return 'waiting';
+    }
+
+    // 3. 작업 중 체크
     if (workerStatus?.status == 'running') return 'working';
     for (final conv in conversations) {
-      if (conv.status == 'working' || conv.status == 'waiting') {
-        return 'working';
-      }
+      if (conv.status == ConversationStatus.working) return 'working';
     }
 
-    // 3. 읽지 않음 체크
+    // 4. 읽지 않음 체크
     for (final conv in conversations) {
-      if (conv.unread) return 'unread';
+      if (conv.status == ConversationStatus.unread) return 'unread';
     }
 
-    // 4. idle
+    // 5. idle
     return 'idle';
   }
 
@@ -133,8 +205,7 @@ class ConversationInfo {
   final String name;
   final String skillType; // general, planner, worker
   final String? claudeSessionId;
-  final String status; // idle, working, waiting, error
-  final bool unread;
+  final ConversationStatus status;
   final String permissionMode; // default, acceptEdits, bypassPermissions
   final DateTime? createdAt;
 
@@ -143,20 +214,35 @@ class ConversationInfo {
     required this.name,
     this.skillType = 'general',
     this.claudeSessionId,
-    this.status = 'idle',
-    this.unread = false,
+    this.status = ConversationStatus.idle,
     this.permissionMode = 'default',
     this.createdAt,
   });
 
   factory ConversationInfo.fromJson(Map<String, dynamic> json) {
+    // status와 unread를 결합하여 ConversationStatus 결정
+    final statusStr = json['status'] as String? ?? 'idle';
+    final unread = json['unread'] as bool? ?? false;
+
+    ConversationStatus status;
+    if (statusStr == 'error') {
+      status = ConversationStatus.error;
+    } else if (statusStr == 'waiting') {
+      status = ConversationStatus.waiting;
+    } else if (statusStr == 'working') {
+      status = ConversationStatus.working;
+    } else if (unread) {
+      status = ConversationStatus.unread;
+    } else {
+      status = ConversationStatus.idle;
+    }
+
     return ConversationInfo(
       conversationId: json['conversationId'] ?? '',
       name: json['name'] ?? '',
       skillType: json['skillType'] ?? 'general',
       claudeSessionId: json['claudeSessionId'],
-      status: json['status'] ?? 'idle',
-      unread: json['unread'] ?? false,
+      status: status,
       permissionMode: json['permissionMode'] ?? 'default',
       createdAt: json['createdAt'] != null
           ? DateTime.tryParse(json['createdAt'].toString())
@@ -164,10 +250,14 @@ class ConversationInfo {
     );
   }
 
-  bool get isWorking => status == 'working';
-  bool get isWaiting => status == 'waiting';
-  bool get hasError => status == 'error';
+  bool get isWorking => status == ConversationStatus.working;
+  bool get isWaiting => status == ConversationStatus.waiting;
+  bool get hasError => status == ConversationStatus.error;
+  bool get unread => status == ConversationStatus.unread;
   bool get canResume => claudeSessionId != null;
+
+  /// StatusDot용 상태 문자열
+  String get dotStatus => status.dotStatus;
 
   /// 스킬 타입에 해당하는 아이콘
   String get skillIcon {
@@ -186,8 +276,8 @@ class ConversationInfo {
     String? name,
     String? skillType,
     String? claudeSessionId,
-    String? status,
-    bool? unread,
+    ConversationStatus? status,
+    String? permissionMode,
     DateTime? createdAt,
   }) {
     return ConversationInfo(
@@ -196,7 +286,7 @@ class ConversationInfo {
       skillType: skillType ?? this.skillType,
       claudeSessionId: claudeSessionId ?? this.claudeSessionId,
       status: status ?? this.status,
-      unread: unread ?? this.unread,
+      permissionMode: permissionMode ?? this.permissionMode,
       createdAt: createdAt ?? this.createdAt,
     );
   }
