@@ -1,6 +1,6 @@
 # 파일 전송 기능 (Claude → 사용자)
 
-## 상태: 구현 완료 ✅
+## 상태: 완료 ✅
 
 ## 개요
 Claude가 MCP 도구(`send_file`)를 통해 사용자에게 파일을 보내는 기능
@@ -87,22 +87,49 @@ send_file({
 └─────────────────────────────┘
 ```
 
-## TODO
+## 수정 완료 (2026-01-29)
+
+### 해결된 이슈
+
+#### 1. 다운로드 "다운로드 중" 멈춤 버그 ✅
+- **원인**: `List.filled()`로 생성된 리스트가 고정 길이여서 `clear()` 호출 시 에러
+- **수정**: `blob_transfer_service.dart`에서 `growable: true` 옵션 추가
+  ```dart
+  transfer.chunks = List.filled(transfer.totalChunks, Uint8List(0), growable: true);
+  ```
+
+#### 2. 이미지 업로드 시 버블 중복 버그 ✅
+- **원인**: `blob_end`에서 userMessage 브로드캐스트 + `claude_send`에서 또 브로드캐스트
+- **해결**: fileId 기반 아키텍처로 변경
+
+**새 아키텍처:**
+```
+[업로드 완료]
+   ↓
+blob_end → pendingFiles에 저장 (fileId 부여) → blob_upload_complete 응답 (fileId 포함)
+   (userMessage 브로드캐스트 안 함)
+
+[메시지 전송]
+   ↓
+claude_send (attachedFileIds 포함) → pendingFiles에서 조회 → userMessage 브로드캐스트 (첨부파일 포함)
+```
+
+**수정 파일:**
+- `estelle-pylon/src/index.js`: pendingFiles 구조, blob_end 처리, claude_send 처리
+- `estelle-app/lib/data/services/blob_transfer_service.dart`: BlobUploadCompleteEvent에 fileId 추가
+- `estelle-app/lib/state/providers/image_upload_provider.dart`: recentFileIds 추적
+- `estelle-app/lib/ui/widgets/chat/input_bar.dart`: fileId 전달
+- `estelle-app/lib/data/services/relay_service.dart`: attachedFileIds 파라미터 추가
+- `estelle-app/lib/state/providers/claude_provider.dart`: 중복 필터링 제거, attachments 직접 처리
+
+#### 3. 썸네일 히스토리 저장 ✅
+- **수정**: messageStore.js에서 attachments에 thumbnail base64 포함하여 저장
+- 히스토리 로드 시 썸네일 캐시에 복원
+
+## 미완료 항목 (향후 개선)
 
 - [ ] flutter_markdown 패키지 추가 후 MD 렌더링 지원
 - [ ] 코드 파일 구문 강조 (syntax highlighting)
-- [ ] 사용자 → Claude 방향 파일 업로드
-
-## 테스트 방법
-
-1. Pylon 재시작: `estelle-pylon/restart.bat`
-2. Flutter 앱 실행 (web-server 모드)
-3. Claude에게 파일 전송 요청:
-   - "CLAUDE.md 파일을 보여줘"
-   - Claude가 `send_file` 도구 사용
-4. 앱에서 파일 카드 확인
-5. 다운로드 버튼 클릭
-6. 다운로드 완료 후 열기 버튼 클릭 → 뷰어 확인
 
 ## 관련 문서
 - `wip/blob-transfer.md` - Blob 전송 프로토콜

@@ -224,12 +224,16 @@ class MessageStore {
 
   /**
    * 사용자 메시지 추가
+   * @param {string} sessionId
+   * @param {string} content
+   * @param {Array|null} attachments - [{ filename, path, thumbnail (base64) }]
    */
-  addUserMessage(sessionId, content) {
+  addUserMessage(sessionId, content, attachments = null) {
     return this.addMessage(sessionId, {
       role: 'user',
       type: 'text',
-      content
+      content,
+      ...(attachments && { attachments })
     });
   }
 

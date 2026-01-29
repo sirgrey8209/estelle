@@ -52,8 +52,8 @@ class Pylon {
     this.blobHandler = null;
     // 세션별 시청자 추적: Map<sessionId, Set<clientDeviceId>>
     this.sessionViewers = new Map();
-    // 대화별 pending 이미지: Map<conversationId, Array<{path, filename}>>
-    this.pendingImages = new Map();
+    // 대화별 pending 파일: Map<conversationId, Map<fileId, {fileId, path, filename, thumbnail}>>
+    this.pendingFiles = new Map();
     // Claude 누적 사용량
     this.claudeUsage = {
       totalCostUsd: 0,
@@ -886,14 +886,19 @@ class Pylon {
 
         const imageFilename = path.basename(imagePath);
 
+        // fileId 생성 (blobId 재활용)
+        const fileId = blobId;
+
         // 썸네일 생성 (비동기)
         this.generateThumbnail(imagePath).then(thumbnail => {
-          // 클라이언트에 업로드 완료 알림 (Pylon 경로 + 썸네일 포함)
+          // 클라이언트에 업로드 완료 알림 (fileId + 썸네일)
+          // userMessage 브로드캐스트는 여기서 안 함 - claude_send에서 함
           this.send({
             type: 'blob_upload_complete',
             to: from,
             payload: {
               blobId,
+              fileId, // 클라이언트가 메시지 전송 시 사용
               path: imagePath,
               filename: imageFilename,
               conversationId,
@@ -902,34 +907,19 @@ class Pylon {
             }
           });
 
-          // 히스토리에 이미지 메시지 저장
-          const imageMessage = `[image:${imageFilename}]`;
-          messageStore.addUserMessage(conversationId, imageMessage);
-
-          // 브로드캐스트 (다른 클라이언트에게 이미지 버블 표시)
-          const userMessageEvent = {
-            type: 'claude_event',
-            payload: {
-              workspaceId,
-              conversationId,
-              event: {
-                type: 'userMessage',
-                content: imageMessage,
-                thumbnail, // 썸네일도 함께 전송
-                timestamp: Date.now()
-              }
-            }
-          };
-          this.send({ ...userMessageEvent, broadcast: 'clients' });
-          this.localServer?.broadcast(userMessageEvent);
-
-          // pending 이미지로 저장 (다음 claude_send에서 Claude에게 전달)
-          if (!this.pendingImages.has(conversationId)) {
-            this.pendingImages.set(conversationId, []);
+          // pending 파일로 저장 (claude_send에서 사용)
+          // fileId를 키로 사용
+          if (!this.pendingFiles) {
+            this.pendingFiles = new Map();
           }
-          this.pendingImages.get(conversationId).push({
+          if (!this.pendingFiles.has(conversationId)) {
+            this.pendingFiles.set(conversationId, new Map());
+          }
+          this.pendingFiles.get(conversationId).set(fileId, {
+            fileId,
             path: imagePath,
-            filename: imageFilename
+            filename: imageFilename,
+            thumbnail: thumbnail || null
           });
           console.log(`[IMAGE] Pending image added for ${conversationId}: ${imageFilename}`);
         }).catch(err => {
@@ -947,7 +937,7 @@ class Pylon {
     // ===== Claude 관련 =====
 
     if (type === 'claude_send') {
-      const { workspaceId, conversationId, message: userMessage } = payload || {};
+      const { workspaceId, conversationId, message: userMessage, attachedFileIds } = payload || {};
 
       if (conversationId && userMessage) {
         // workingDir 및 conversation 정보 가져오기
@@ -959,10 +949,35 @@ class Pylon {
           conversation = workspaceStore.getConversation(workspaceId, conversationId);
         }
 
-        // 사용자 메시지 저장 (텍스트만 - 이미지 버블은 blob_end에서 이미 저장됨)
-        messageStore.addUserMessage(conversationId, userMessage);
+        // attachedFileIds로 첨부 파일 정보 조회
+        let attachments = null;
+        const pendingFilesForConv = this.pendingFiles?.get(conversationId);
 
-        // 사용자 메시지 브로드캐스트 (텍스트만)
+        if (attachedFileIds && attachedFileIds.length > 0 && pendingFilesForConv) {
+          attachments = [];
+          for (const fileId of attachedFileIds) {
+            const fileInfo = pendingFilesForConv.get(fileId);
+            if (fileInfo) {
+              attachments.push({
+                filename: fileInfo.filename,
+                path: fileInfo.path,
+                thumbnail: fileInfo.thumbnail
+              });
+              // 사용한 파일은 pending에서 제거
+              pendingFilesForConv.delete(fileId);
+            }
+          }
+          if (attachments.length === 0) {
+            attachments = null;
+          } else {
+            console.log(`[CLAUDE_SEND] Found ${attachments.length} attachments for fileIds: ${attachedFileIds.join(', ')}`);
+          }
+        }
+
+        // 사용자 메시지 저장 (첨부파일 포함)
+        messageStore.addUserMessage(conversationId, userMessage, attachments);
+
+        // 사용자 메시지 브로드캐스트 (첨부파일 포함)
         const userMessageEvent = {
           type: 'claude_event',
           payload: {
@@ -971,7 +986,8 @@ class Pylon {
             event: {
               type: 'userMessage',
               content: userMessage,
-              timestamp: Date.now()
+              timestamp: Date.now(),
+              ...(attachments && { attachments })
             }
           }
         };
@@ -979,20 +995,16 @@ class Pylon {
         this.localServer?.broadcast(userMessageEvent);
 
         // Claude에게 보낼 프롬프트 구성
-        // - pending 이미지가 있으면 경로 첨부
+        // - 첨부 파일이 있으면 경로 첨부
         let promptToSendBase = userMessage;
-        const pendingImages = this.pendingImages.get(conversationId) || [];
 
-        if (pendingImages.length > 0) {
-          // 이미지 경로들을 프롬프트 앞에 첨부
-          const imageAttachments = pendingImages
-            .map(img => `[첨부 이미지: ${img.path}]`)
+        if (attachments && attachments.length > 0) {
+          // 파일 경로들을 프롬프트 앞에 첨부
+          const fileAttachments = attachments
+            .map(file => `[첨부 파일: ${file.path}]`)
             .join('\n');
-          promptToSendBase = `${imageAttachments}\n\n${userMessage}`;
-          console.log(`[IMAGE] Attaching ${pendingImages.length} images to Claude prompt`);
-
-          // pending 이미지 클리어
-          this.pendingImages.delete(conversationId);
+          promptToSendBase = `${fileAttachments}\n\n${userMessage}`;
+          console.log(`[CLAUDE_SEND] Attaching ${attachments.length} files to Claude prompt`);
         }
 
         // 첫 메시지인 경우 페르소나 지침 주입

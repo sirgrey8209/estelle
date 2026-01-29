@@ -236,7 +236,7 @@ class RelayService {
 
   // ============ Claude Control ============
 
-  void sendClaudeMessage(int deviceId, String workspaceId, String conversationId, String message) {
+  void sendClaudeMessage(int deviceId, String workspaceId, String conversationId, String message, {List<String>? attachedFileIds}) {
     send({
       'type': 'claude_send',
       'to': {'deviceId': deviceId, 'deviceType': 'pylon'},
@@ -244,6 +244,7 @@ class RelayService {
         'workspaceId': workspaceId,
         'conversationId': conversationId,
         'message': message,
+        if (attachedFileIds != null && attachedFileIds.isNotEmpty) 'attachedFileIds': attachedFileIds,
       },
     });
   }

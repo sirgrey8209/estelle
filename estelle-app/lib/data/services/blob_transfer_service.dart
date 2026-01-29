@@ -52,6 +52,7 @@ class BlobTransfer {
 /// 업로드 완료 이벤트
 class BlobUploadCompleteEvent {
   final String blobId;
+  final String fileId;  // 서버에서 부여한 파일 ID (메시지 전송 시 사용)
   final String filename;
   final String pylonPath;
   final String conversationId;
@@ -59,6 +60,7 @@ class BlobUploadCompleteEvent {
 
   BlobUploadCompleteEvent({
     required this.blobId,
+    required this.fileId,
     required this.filename,
     required this.pylonPath,
     required this.conversationId,
@@ -311,6 +313,7 @@ class BlobTransferService {
     if (payload == null) return;
 
     final blobId = payload['blobId'] as String;
+    final fileId = payload['fileId'] as String? ?? blobId;  // fileId가 없으면 blobId 사용
     final pylonPath = payload['path'] as String;
     final conversationId = payload['conversationId'] as String? ?? '';
     final thumbnailBase64 = payload['thumbnail'] as String?;
@@ -328,9 +331,10 @@ class BlobTransferService {
         _log('BLOB', 'Thumbnail cached: thumb_${transfer.filename}');
       }
 
-      // 완료 이벤트 발송
+      // 완료 이벤트 발송 (fileId 포함)
       _uploadCompleteController.add(BlobUploadCompleteEvent(
         blobId: blobId,
+        fileId: fileId,
         filename: transfer.filename,
         pylonPath: pylonPath,
         conversationId: conversationId,
@@ -341,6 +345,7 @@ class BlobTransferService {
 
       _log('BLOB', 'Upload complete', {
         'blobId': blobId,
+        'fileId': fileId,
         'filename': transfer.filename,
         'pylonPath': pylonPath,
         'hasThumbnail': thumbnailBase64 != null,
@@ -425,7 +430,7 @@ class BlobTransferService {
     );
 
     transfer.state = BlobTransferState.downloading;
-    transfer.chunks = List.filled(transfer.totalChunks, Uint8List(0));
+    transfer.chunks = List.filled(transfer.totalChunks, Uint8List(0), growable: true);
     _transfers[blobId] = transfer;
     _progressController.add(transfer);
 
@@ -443,7 +448,10 @@ class BlobTransferService {
 
     final blobId = payload['blobId'] as String;
     final transfer = _transfers[blobId];
-    if (transfer == null) return;
+    if (transfer == null) {
+      print('[BLOB] WARNING: chunk received for unknown transfer: $blobId');
+      return;
+    }
 
     final index = payload['index'] as int;
     final dataStr = payload['data'] as String;
@@ -451,6 +459,13 @@ class BlobTransferService {
 
     transfer.chunks[index] = chunk;
     transfer.processedChunks++;
+
+    // 진행률 로그 (10% 단위)
+    final progress = (transfer.processedChunks / transfer.totalChunks * 100).round();
+    if (transfer.processedChunks == 1 || progress % 10 == 0) {
+      _log('BLOB', 'Chunk received: ${transfer.processedChunks}/${transfer.totalChunks} ($progress%)');
+    }
+
     _progressController.add(transfer);
     onProgress?.call(blobId, transfer.processedChunks, transfer.totalChunks);
   }
@@ -482,6 +497,13 @@ class BlobTransferService {
     transfer.chunks.clear();
 
     // 완료 이벤트 발송
+    _log('BLOB', 'Emitting downloadCompleteStream event', {
+      'blobId': blobId,
+      'filename': transfer.filename,
+      'size': bytes.length,
+      'serviceInstance': hashCode,
+    });
+
     _downloadCompleteController.add(BlobDownloadCompleteEvent(
       blobId: blobId,
       filename: transfer.filename,

@@ -321,6 +321,7 @@ class _AttachmentImageState extends ConsumerState<_AttachmentImage> {
         setState(() {
           _imageBytes = event.bytes;
           _hasFullImage = true;
+          _isLoading = false;
         });
       }
     });
@@ -336,41 +337,27 @@ class _AttachmentImageState extends ConsumerState<_AttachmentImage> {
       return _buildLoadingPlaceholder();
     }
 
-    // 원본 이미지가 있으면 표시
-    if (_imageBytes != null && _hasFullImage) {
-      return GestureDetector(
-        onTap: () => _showFullImage(context, _imageBytes!),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(
-              maxWidth: 200,
-              maxHeight: 200,
-            ),
-            child: Image.memory(
-              _imageBytes!,
-              fit: BoxFit.cover,
-              errorBuilder: (context, error, stack) {
-                return _buildPlaceholder();
-              },
-            ),
-          ),
-        ),
-      );
-    }
-
-    // 썸네일만 있으면 썸네일 표시 (클릭 시 원본 다운로드)
+    // 썸네일이 있으면 썸네일 표시 (항상 80x80)
     if (_thumbnailBytes != null) {
+      final hasFullImage = _imageBytes != null && _hasFullImage;
       return GestureDetector(
-        onTap: _requestDownload,
+        onTap: () {
+          if (hasFullImage) {
+            // 원본이 있으면 뷰어 열기
+            _showFullImage(context, _imageBytes!);
+          } else {
+            // 없으면 다운로드 시작
+            _requestDownload();
+          }
+        },
         child: Stack(
           children: [
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
               child: ConstrainedBox(
                 constraints: const BoxConstraints(
-                  maxWidth: 200,
-                  maxHeight: 200,
+                  maxWidth: 80,
+                  maxHeight: 80,
                 ),
                 child: Image.memory(
                   _thumbnailBytes!,
@@ -381,7 +368,7 @@ class _AttachmentImageState extends ConsumerState<_AttachmentImage> {
                 ),
               ),
             ),
-            // 다운로드 아이콘 오버레이
+            // 상태 아이콘 오버레이
             Positioned(
               right: 4,
               bottom: 4,
@@ -391,10 +378,10 @@ class _AttachmentImageState extends ConsumerState<_AttachmentImage> {
                   color: NordColors.nord0.withOpacity(0.7),
                   borderRadius: BorderRadius.circular(4),
                 ),
-                child: const Icon(
-                  Icons.download,
+                child: Icon(
+                  hasFullImage ? Icons.zoom_in : Icons.download,
                   size: 16,
-                  color: NordColors.nord8,
+                  color: hasFullImage ? NordColors.nord14 : NordColors.nord8,
                 ),
               ),
             ),
@@ -403,7 +390,7 @@ class _AttachmentImageState extends ConsumerState<_AttachmentImage> {
       );
     }
 
-    // 캐시에 없으면 다운로드 버튼 표시
+    // 썸네일도 없으면 다운로드 버튼 표시
     return _buildDownloadPlaceholder();
   }
 
@@ -550,72 +537,62 @@ class _FileAttachmentCard extends StatelessWidget {
     final isDownloaded = downloadState == FileDownloadState.downloaded;
     final isDownloading = downloadState == FileDownloadState.downloading;
 
+    final hasDescription = file.description != null && file.description!.isNotEmpty;
+
     return GestureDetector(
       onTap: isDownloaded ? onOpen : (isDownloading ? null : onDownload),
-      child: Container(
-        constraints: const BoxConstraints(minWidth: 200, maxWidth: 280),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // 파일 정보 헤더
-            Row(
-              children: [
-                Icon(
-                  _getFileIcon(),
-                  size: 20,
-                  color: _getFileIconColor(),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        file.filename,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                          color: NordColors.nord5,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      Text(
-                        file.formattedSize,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: NordColors.nord4,
-                        ),
-                      ),
-                    ],
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // 첫 줄: 아이콘 + 파일명 + 크기 + 상태
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                _getFileIcon(),
+                size: 16,
+                color: _getFileIconColor(),
+              ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  file.filename,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: NordColors.nord5,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-                // 상태 아이콘
-                _buildStatusIcon(isDownloaded, isDownloading),
-              ],
-            ),
-
-            // 설명 (있으면)
-            if (file.description != null && file.description!.isNotEmpty) ...[
-              const SizedBox(height: 8),
+              ),
+              const SizedBox(width: 6),
               Text(
+                file.formattedSize,
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: NordColors.nord4,
+                ),
+              ),
+              const SizedBox(width: 6),
+              _buildStatusIcon(isDownloaded, isDownloading),
+            ],
+          ),
+          // 두 번째 줄: 설명 (있으면)
+          if (hasDescription)
+            Padding(
+              padding: const EdgeInsets.only(top: 2, left: 22),
+              child: Text(
                 file.description!,
                 style: const TextStyle(
-                  fontSize: 12,
+                  fontSize: 11,
                   color: NordColors.nord4,
-                  height: 1.3,
                 ),
-                maxLines: 2,
+                maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
-            ],
-
-            // 액션 버튼
-            const SizedBox(height: 8),
-            _buildActionButton(isDownloaded, isDownloading),
-          ],
-        ),
+            ),
+        ],
       ),
     );
   }
@@ -642,88 +619,8 @@ class _FileAttachmentCard extends StatelessWidget {
 
     return const Icon(
       Icons.cloud_download_outlined,
-      size: 18,
+      size: 14,
       color: NordColors.nord4,
-    );
-  }
-
-  Widget _buildActionButton(bool isDownloaded, bool isDownloading) {
-    if (isDownloading) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: NordColors.nord2,
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(
-              width: 12,
-              height: 12,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: NordColors.nord4,
-              ),
-            ),
-            SizedBox(width: 8),
-            Text(
-              '다운로드 중...',
-              style: TextStyle(
-                fontSize: 12,
-                color: NordColors.nord4,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    if (isDownloaded) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: NordColors.nord10.withOpacity(0.2),
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.open_in_new, size: 14, color: NordColors.nord8),
-            SizedBox(width: 6),
-            Text(
-              '열기',
-              style: TextStyle(
-                fontSize: 12,
-                color: NordColors.nord8,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: NordColors.nord2,
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: const Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.download, size: 14, color: NordColors.nord4),
-          SizedBox(width: 6),
-          Text(
-            '다운로드',
-            style: TextStyle(
-              fontSize: 12,
-              color: NordColors.nord4,
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

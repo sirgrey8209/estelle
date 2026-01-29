@@ -47,12 +47,14 @@ class QueuedMessage {
 class ImageUploadState {
   final Map<String, UploadingImage> uploads; // blobId -> UploadingImage
   final List<String> recentImagePaths; // 최근 완료된 이미지 경로들 (Pylon 경로)
+  final List<String> recentFileIds; // 최근 완료된 파일 ID들 (서버에서 부여)
   final List<QueuedMessage> messageQueue; // 대기 중인 메시지
   final String? currentConversationId;
 
   const ImageUploadState({
     this.uploads = const {},
     this.recentImagePaths = const [],
+    this.recentFileIds = const [],
     this.messageQueue = const [],
     this.currentConversationId,
   });
@@ -69,12 +71,14 @@ class ImageUploadState {
   ImageUploadState copyWith({
     Map<String, UploadingImage>? uploads,
     List<String>? recentImagePaths,
+    List<String>? recentFileIds,
     List<QueuedMessage>? messageQueue,
     String? currentConversationId,
   }) {
     return ImageUploadState(
       uploads: uploads ?? this.uploads,
       recentImagePaths: recentImagePaths ?? this.recentImagePaths,
+      recentFileIds: recentFileIds ?? this.recentFileIds,
       messageQueue: messageQueue ?? this.messageQueue,
       currentConversationId: currentConversationId ?? this.currentConversationId,
     );
@@ -118,19 +122,23 @@ class ImageUploadNotifier extends StateNotifier<ImageUploadState> {
   }
 
   /// 업로드 완료
-  void completeUpload(String blobId, String pylonPath) {
+  void completeUpload(String blobId, String pylonPath, {String? fileId}) {
     final upload = state.uploads[blobId];
     if (upload == null) return;
 
     upload.status = ImageUploadStatus.completed;
     upload.pylonPath = pylonPath;
 
-    // 최근 이미지 경로에 추가
+    // 최근 이미지 경로와 fileId에 추가
     final newRecentPaths = [...state.recentImagePaths, pylonPath];
+    final newRecentFileIds = fileId != null
+        ? [...state.recentFileIds, fileId]
+        : state.recentFileIds;
 
     state = state.copyWith(
       uploads: {...state.uploads},
       recentImagePaths: newRecentPaths,
+      recentFileIds: newRecentFileIds,
     );
   }
 
@@ -173,12 +181,20 @@ class ImageUploadNotifier extends StateNotifier<ImageUploadState> {
     return paths;
   }
 
+  /// 최근 fileId들 소비 (메시지 전송 시 attachedFileIds로 전달)
+  List<String> consumeRecentFileIds() {
+    final fileIds = List<String>.from(state.recentFileIds);
+    state = state.copyWith(recentFileIds: []);
+    return fileIds;
+  }
+
   /// 대화 변경 시 상태 초기화
   void onConversationChange(String conversationId) {
-    // 다른 대화로 넘어가면 최근 이미지 경로 초기화
+    // 다른 대화로 넘어가면 최근 이미지 경로/fileId 초기화
     if (state.currentConversationId != conversationId) {
       state = state.copyWith(
         recentImagePaths: [],
+        recentFileIds: [],
         currentConversationId: conversationId,
       );
     }

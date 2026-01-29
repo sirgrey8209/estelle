@@ -74,10 +74,15 @@ class ClaudeMessagesNotifier extends StateNotifier<List<ClaudeMessage>> {
     final event = payload['event'] as Map<String, dynamic>?;
     if (conversationId == null || event == null) return;
 
+    final eventType = event['type'] as String?;
+    print('[Claude] Received claude_event: $eventType for $conversationId');
+
     final selectedItem = _ref.read(selectedItemProvider);
     if (selectedItem != null && selectedItem.isConversation && selectedItem.itemId == conversationId) {
+      print('[Claude] Processing event for current conversation');
       _handleClaudeEvent(event);
     } else {
+      print('[Claude] Saving event for other conversation (selected: ${selectedItem?.itemId})');
       _saveEventForConversation(conversationId, event);
     }
   }
@@ -223,6 +228,27 @@ class ClaudeMessagesNotifier extends StateNotifier<List<ClaudeMessage>> {
       if (role == 'user' && msgType == 'text') {
         final rawContent = msg['content'] as String? ?? '';
         final parsed = UserTextMessage.parseContent(rawContent);
+
+        // 히스토리의 attachments에서 썸네일 캐시 저장
+        final attachmentsRaw = msg['attachments'] as List<dynamic>?;
+        if (attachmentsRaw != null) {
+          for (final att in attachmentsRaw) {
+            if (att is Map<String, dynamic>) {
+              final filename = att['filename'] as String?;
+              final thumbnail = att['thumbnail'] as String?;
+              if (filename != null && thumbnail != null && thumbnail.isNotEmpty) {
+                try {
+                  final thumbBytes = base64Decode(thumbnail);
+                  cache.imageCache.put('thumb_$filename', thumbBytes);
+                  print('[Claude] Cached thumbnail from history: thumb_$filename');
+                } catch (e) {
+                  print('[Claude] Failed to decode thumbnail: $e');
+                }
+              }
+            }
+          }
+        }
+
         messages.add(UserTextMessage(
           id: id,
           content: parsed.text,
@@ -263,8 +289,10 @@ class ClaudeMessagesNotifier extends StateNotifier<List<ClaudeMessage>> {
           timestamp: timestamp,
         ));
       } else if (msgType == 'file_attachment') {
+        print('[Claude] Parsing file_attachment: ${msg['file']}');
         final fileData = msg['file'] as Map<String, dynamic>?;
         if (fileData != null) {
+          print('[Claude] Adding FileAttachmentMessage: ${fileData['filename']}');
           messages.add(FileAttachmentMessage(
             id: id,
             file: FileAttachmentInfo.fromJson(fileData),
@@ -288,27 +316,56 @@ class ClaudeMessagesNotifier extends StateNotifier<List<ClaudeMessage>> {
       case 'userMessage':
         _ref.read(sendingMessageProvider.notifier).state = null;
         final rawContent = event['content'] as String? ?? '';
-        final parsed = UserTextMessage.parseContent(rawContent);
         final timestamp = (event['timestamp'] as num?)?.toInt() ?? now;
 
-        // 썸네일이 있으면 캐시에 저장 (브로드캐스트로 받은 이미지)
-        final thumbnail = event['thumbnail'] as String?;
-        if (thumbnail != null && thumbnail.isNotEmpty && parsed.attachments.isNotEmpty) {
-          try {
-            final thumbBytes = base64Decode(thumbnail);
-            // 첫 번째 첨부파일의 썸네일로 저장
-            cache.imageCache.put('thumb_${parsed.attachments.first.filename}', thumbBytes);
-          } catch (e) {
-            debugPrint('[THUMBNAIL] Failed to decode: $e');
+        // 서버에서 첨부파일 정보가 함께 오는 경우 (fileId 기반)
+        final eventAttachments = event['attachments'] as List?;
+        List<AttachmentInfo> attachments = [];
+
+        if (eventAttachments != null && eventAttachments.isNotEmpty) {
+          int index = 0;
+          for (final att in eventAttachments) {
+            if (att is Map<String, dynamic>) {
+              final filename = att['filename'] as String?;
+              final thumbnail = att['thumbnail'] as String?;
+              final path = att['path'] as String?;
+              if (filename != null) {
+                attachments.add(AttachmentInfo(
+                  id: 'att_${timestamp}_$index',
+                  filename: filename,
+                  localPath: path,
+                  remotePath: path,
+                ));
+                // 썸네일이 있으면 캐시에 저장
+                if (thumbnail != null && thumbnail.isNotEmpty) {
+                  try {
+                    final thumbBytes = base64Decode(thumbnail);
+                    cache.imageCache.put('thumb_$filename', thumbBytes);
+                  } catch (e) {
+                    debugPrint('[THUMBNAIL] Failed to decode: $e');
+                  }
+                }
+                index++;
+              }
+            }
           }
         }
+
+        // 서버 첨부파일이 없으면 content에서 파싱 (기존 방식 호환)
+        if (attachments.isEmpty) {
+          final parsed = UserTextMessage.parseContent(rawContent);
+          attachments = parsed.attachments;
+        }
+
+        // content에서 [image:...] 태그 제거
+        final cleanContent = rawContent.replaceAll(RegExp(r'\[image:[^\]]+\]\n?'), '').trim();
 
         state = [
           ...state,
           UserTextMessage(
             id: '$timestamp-user',
-            content: parsed.text,
-            attachments: parsed.attachments.isNotEmpty ? parsed.attachments : null,
+            content: cleanContent,
+            attachments: attachments.isNotEmpty ? attachments : null,
             timestamp: timestamp,
           ),
         ];
@@ -477,9 +534,12 @@ class ClaudeMessagesNotifier extends StateNotifier<List<ClaudeMessage>> {
         break;
 
       case 'fileAttachment':
+        print('[Claude] Handling fileAttachment event');
         final fileData = event['file'] as Map<String, dynamic>?;
+        print('[Claude] fileData: $fileData');
         if (fileData != null) {
           final fileInfo = FileAttachmentInfo.fromJson(fileData);
+          print('[Claude] Adding FileAttachmentMessage: ${fileInfo.filename}');
           state = [
             ...state,
             FileAttachmentMessage(
@@ -489,6 +549,7 @@ class ClaudeMessagesNotifier extends StateNotifier<List<ClaudeMessage>> {
               timestamp: now,
             ),
           ];
+          print('[Claude] State updated, total messages: ${state.length}');
         }
         break;
     }

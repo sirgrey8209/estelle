@@ -44,10 +44,15 @@ class _InputBarState extends ConsumerState<InputBar> {
     // 업로드 완료 리스너
     _completeSubscription = blobService.uploadCompleteStream.listen((event) {
       // 업로드 완료 시 Provider 업데이트 (filename으로 저장 - 캐시 키와 동일)
+      // fileId도 함께 저장 (메시지 전송 시 attachedFileIds로 사용)
       ref.read(imageUploadProvider.notifier).completeUpload(
         event.blobId,
         event.filename,
+        fileId: event.fileId,
       );
+
+      // 업로드 버블 제거 (로컬에만 보이고 완료 시 사라짐)
+      ref.read(imageUploadProvider.notifier).removeUpload(event.blobId);
 
       // 큐에 대기 중인 메시지가 있으면 전송
       _processMessageQueue();
@@ -312,10 +317,11 @@ class _InputBarState extends ConsumerState<InputBar> {
     final selectedItem = ref.read(selectedItemProvider);
     if (selectedItem == null) return;
 
-    // 최근 이미지 경로들 가져오기
+    // 최근 이미지 경로들과 fileId들 가져오기
     final imagePaths = ref.read(imageUploadProvider.notifier).consumeRecentImagePaths();
+    final fileIds = ref.read(imageUploadProvider.notifier).consumeRecentFileIds();
 
-    // 이미지 경로가 있으면 메시지에 포함
+    // 이미지 경로가 있으면 메시지에 포함 (Claude에게 보내는 텍스트용)
     String messageToSend = text;
     if (imagePaths.isNotEmpty) {
       final imageRefs = imagePaths.map((p) => '[image:$p]').join('\n');
@@ -328,11 +334,13 @@ class _InputBarState extends ConsumerState<InputBar> {
         : text;
     ref.read(sendingMessageProvider.notifier).state = displayMessage;
 
+    // attachedFileIds를 함께 전송 (서버에서 첨부파일 정보 조회용)
     ref.read(relayServiceProvider).sendClaudeMessage(
       selectedItem.deviceId,
       selectedItem.workspaceId,
       selectedItem.itemId,
       messageToSend,
+      attachedFileIds: fileIds.isNotEmpty ? fileIds : null,
     );
 
     ref.read(claudeStateProvider.notifier).state = 'working';
@@ -398,8 +406,8 @@ class _InputBarState extends ConsumerState<InputBar> {
                       borderRadius: BorderRadius.circular(8),
                       child: Image.memory(
                         attachedImageBytes,
-                        width: 60,
-                        height: 60,
+                        width: 80,
+                        height: 80,
                         fit: BoxFit.cover,
                       ),
                     ),
