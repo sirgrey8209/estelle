@@ -13,11 +13,15 @@ List<dynamic>? _safeList(dynamic value) {
 /// 3. working - 작업 중
 /// 4. unread - 읽지 않은 메시지 있음
 /// 5. idle - 기본 상태
+/// 6. finishing - 작업완료 진행 중
+/// 7. finished - 작업완료 완료 (다이얼로그 대기)
 enum ConversationStatus {
   idle,
   unread,
   working,
   waiting,
+  finishing,
+  finished,
   error;
 
   /// JSON 문자열에서 변환
@@ -29,6 +33,10 @@ enum ConversationStatus {
         return ConversationStatus.waiting;
       case 'working':
         return ConversationStatus.working;
+      case 'finishing':
+        return ConversationStatus.finishing;
+      case 'finished':
+        return ConversationStatus.finished;
       case 'unread':
         return ConversationStatus.unread;
       default:
@@ -45,6 +53,10 @@ enum ConversationStatus {
         return 'waiting';
       case ConversationStatus.working:
         return 'working';
+      case ConversationStatus.finishing:
+        return 'working'; // finishing도 작업 중으로 표시
+      case ConversationStatus.finished:
+        return 'waiting'; // finished는 대기 상태로 표시
       case ConversationStatus.unread:
         return 'unread';
       case ConversationStatus.idle:
@@ -56,9 +68,13 @@ enum ConversationStatus {
   int get priority {
     switch (this) {
       case ConversationStatus.error:
-        return 4;
+        return 5;
+      case ConversationStatus.finished:
+        return 4; // finished는 다이얼로그 대기 상태로 높은 우선순위
       case ConversationStatus.waiting:
         return 3;
+      case ConversationStatus.finishing:
+        return 2; // finishing은 working과 동일
       case ConversationStatus.working:
         return 2;
       case ConversationStatus.unread:

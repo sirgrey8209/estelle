@@ -11,7 +11,7 @@
  *       conversationId: "uuid",
  *       name: "기능 논의",
  *       claudeSessionId: "session-uuid",
- *       status: "idle",  // idle/working/waiting/error
+ *       status: "idle",  // idle/working/waiting/finishing/finished/error
  *       unread: false
  *     }
  *   ]
@@ -378,6 +378,53 @@ const workspaceStore = {
     }
 
     return resetConversationIds;
+  },
+
+  /**
+   * finishing 상태인 대화들 조회 (Pylon 시작 시 재처리용)
+   * @returns {Array} { workspaceId, conversationId, workingDir } 목록
+   */
+  getFinishingConversations() {
+    const store = this.load();
+    const result = [];
+
+    for (const workspace of store.workspaces) {
+      for (const conv of workspace.conversations) {
+        if (conv.status === 'finishing') {
+          result.push({
+            workspaceId: workspace.workspaceId,
+            conversationId: conv.conversationId,
+            workingDir: workspace.workingDir,
+            claudeSessionId: conv.claudeSessionId
+          });
+          console.log(`[WorkspaceStore] Found finishing conversation: ${conv.name} (${conv.conversationId})`);
+        }
+      }
+    }
+
+    return result;
+  },
+
+  /**
+   * finished 상태인 대화들 조회 (앱 재접속 시 다이얼로그 표시용)
+   * @returns {Array} { workspaceId, conversationId } 목록
+   */
+  getFinishedConversations() {
+    const store = this.load();
+    const result = [];
+
+    for (const workspace of store.workspaces) {
+      for (const conv of workspace.conversations) {
+        if (conv.status === 'finished') {
+          result.push({
+            workspaceId: workspace.workspaceId,
+            conversationId: conv.conversationId
+          });
+        }
+      }
+    }
+
+    return result;
   }
 };
 

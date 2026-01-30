@@ -110,13 +110,19 @@ Claude 이벤트 발생 (conversationId)
 ## 구현 체크리스트
 
 ### Pylon
-- [ ] `appUnreadSent` Map 추가 (index.js)
-- [ ] 앱 연결 시 `appUnreadSent[appId] = new Set()` 초기화
-- [ ] 앱 연결 해제 시 `appUnreadSent.delete(appId)`
-- [ ] `select_conversation` 시 `appUnreadSent[appId].delete(conversationId)`
-- [ ] Claude 이벤트 전송 로직 수정:
+- [x] `appUnreadSent` Map 추가 (index.js)
+- [x] 앱 연결 시 `appUnreadSent[appId] = new Set()` 초기화
+- [x] 앱 연결 해제 시 `appUnreadSent.delete(appId)`
+- [x] `select_conversation` 시 `appUnreadSent[appId].delete(conversationId)`
+- [x] Claude 이벤트 전송 로직 수정:
   - 보고 있는 앱 → 실시간 전송
   - 안 보고 있는 앱 → unreadSent 확인 후 1회만 unread 전송
 
 ### 앱
-- [ ] (기존 로직 유지 - conversation_status 이벤트에서 unread 처리)
+- [x] (기존 로직 유지 - conversation_status 이벤트에서 unread 처리)
+
+---
+
+## 완료
+- 2026-01-30 구현 완료
+- 로그: `log/2026-01-30-status-dot-refactor.md`

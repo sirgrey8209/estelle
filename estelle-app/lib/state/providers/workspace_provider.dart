@@ -26,6 +26,21 @@ final activeActionItemProvider = StateProvider<String?>((ref) => null);
 /// 대화 탭 이벤트 (모바일에서 같은 대화를 다시 눌러도 채팅 탭으로 이동하기 위함)
 final conversationTapEventProvider = StateProvider<DateTime?>((ref) => null);
 
+/// 작업완료 이벤트 (Pylon에서 finish_work_complete 수신 시)
+class FinishWorkCompleteEvent {
+  final String conversationId;
+  final String? workspaceId;
+  final int? deviceId;
+
+  FinishWorkCompleteEvent({
+    required this.conversationId,
+    this.workspaceId,
+    this.deviceId,
+  });
+}
+
+final finishWorkCompleteProvider = StateProvider<FinishWorkCompleteEvent?>((ref) => null);
+
 /// 선택 가능한 항목 타입
 enum SelectedItemType { conversation, task }
 
@@ -87,6 +102,9 @@ class PylonWorkspacesNotifier extends StateNotifier<Map<int, PylonWorkspaces>> {
         break;
       case 'conversation_status':
         _handleConversationStatus(payload);
+        break;
+      case 'finish_work_complete':
+        _handleFinishWorkComplete(payload);
         break;
       case 'task_list_result':
         _handleTaskListResult(payload);
@@ -351,6 +369,25 @@ class PylonWorkspacesNotifier extends StateNotifier<Map<int, PylonWorkspaces>> {
       ...state,
       deviceId: pylon.copyWith(workspaces: updatedWorkspaces),
     };
+  }
+
+  void _handleFinishWorkComplete(Map<String, dynamic>? payload) {
+    if (payload == null) return;
+
+    final conversationId = payload['conversationId'] as String?;
+    final workspaceId = payload['workspaceId'] as String?;
+    final deviceId = payload['deviceId'] as int?;
+
+    if (conversationId == null) return;
+
+    debugPrint('[Workspace] finish_work_complete: $conversationId');
+
+    // finishWorkCompleteProvider에 알림
+    _ref.read(finishWorkCompleteProvider.notifier).state = FinishWorkCompleteEvent(
+      conversationId: conversationId,
+      workspaceId: workspaceId,
+      deviceId: deviceId,
+    );
   }
 
   void _handleTaskListResult(Map<String, dynamic>? payload) {

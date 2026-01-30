@@ -10,16 +10,49 @@ import 'input_bar.dart';
 import '../requests/request_bar.dart';
 import '../common/status_dot.dart';
 
-class ChatArea extends ConsumerWidget {
+class ChatArea extends ConsumerStatefulWidget {
   final bool showHeader;
 
   const ChatArea({super.key, this.showHeader = true});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ChatArea> createState() => _ChatAreaState();
+}
+
+class _ChatAreaState extends ConsumerState<ChatArea> {
+  bool _dialogShown = false;
+
+  @override
+  Widget build(BuildContext context) {
     final selectedItem = ref.watch(selectedItemProvider);
     final selectedWorkspace = ref.watch(selectedWorkspaceProvider);
     final selectedConversation = ref.watch(selectedConversationProvider);
+
+    // finish_work_complete 이벤트 리스닝
+    ref.listen<FinishWorkCompleteEvent?>(finishWorkCompleteProvider, (prev, next) {
+      if (next != null && !_dialogShown) {
+        // 현재 선택된 대화와 일치하는지 확인
+        if (selectedConversation?.conversationId == next.conversationId) {
+          _dialogShown = true;
+          _showFinishDialog(context, selectedWorkspace!, selectedConversation!);
+        }
+      }
+    });
+
+    // finished 상태인 대화 선택 시 다이얼로그 표시
+    if (selectedConversation?.status == ConversationStatus.finished && !_dialogShown) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && selectedWorkspace != null) {
+          _dialogShown = true;
+          _showFinishDialog(context, selectedWorkspace, selectedConversation!);
+        }
+      });
+    }
+
+    // 다른 대화로 전환되면 다이얼로그 상태 초기화
+    if (selectedConversation?.status != ConversationStatus.finished) {
+      _dialogShown = false;
+    }
 
     if (selectedItem == null || selectedWorkspace == null) {
       return const _NoItemSelected();
@@ -32,13 +65,60 @@ class ChatArea extends ConsumerWidget {
 
     return Column(
       children: [
-        if (showHeader) _ChatHeader(
+        if (widget.showHeader) _ChatHeader(
           workspace: selectedWorkspace,
           conversation: selectedConversation,
         ),
         const Expanded(child: MessageList()),
         const _BottomArea(),
       ],
+    );
+  }
+
+  void _showFinishDialog(BuildContext context, WorkspaceInfo workspace, ConversationInfo conversation) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: NordColors.nord1,
+        title: const Text('작업 완료', style: TextStyle(color: NordColors.nord5)),
+        content: const Text(
+          '세션을 삭제하시겠습니까?\n삭제하면 대화 내용이 모두 사라집니다.',
+          style: TextStyle(color: NordColors.nord4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              ref.read(relayServiceProvider).sendClaudeControl(
+                workspace.deviceId,
+                workspace.workspaceId,
+                conversation.conversationId,
+                'cancel_finish',
+              );
+              _dialogShown = false;
+              ref.read(finishWorkCompleteProvider.notifier).state = null;
+              Navigator.pop(dialogContext);
+            },
+            child: const Text('아니오', style: TextStyle(color: NordColors.nord4)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: NordColors.nord11),
+            onPressed: () {
+              ref.read(relayServiceProvider).deleteConversation(
+                workspace.deviceId,
+                workspace.workspaceId,
+                conversation.conversationId,
+              );
+              ref.read(claudeMessagesProvider.notifier).clearMessages();
+              ref.read(claudeMessagesProvider.notifier).clearConversationCache(conversation.conversationId);
+              _dialogShown = false;
+              ref.read(finishWorkCompleteProvider.notifier).state = null;
+              Navigator.pop(dialogContext);
+            },
+            child: const Text('예, 삭제'),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -182,6 +262,16 @@ class _SessionMenuButton extends ConsumerWidget {
           onSelected: (value) => _handleMenuAction(context, ref, value),
           itemBuilder: (context) => [
             const PopupMenuItem(
+              value: 'finish_work',
+              child: Row(
+                children: [
+                  Icon(Icons.check_circle_outline, color: NordColors.nord14, size: 18),
+                  SizedBox(width: 8),
+                  Text('작업완료', style: TextStyle(color: NordColors.nord5)),
+                ],
+              ),
+            ),
+            const PopupMenuItem(
               value: 'new_session',
               child: Row(
                 children: [
@@ -211,6 +301,9 @@ class _SessionMenuButton extends ConsumerWidget {
     if (conversation == null) return;
 
     switch (action) {
+      case 'finish_work':
+        _startFinishWorkFlow(context, ref);
+        break;
       case 'new_session':
         _showNewSessionDialog(context, ref);
         break;
@@ -223,6 +316,18 @@ class _SessionMenuButton extends ConsumerWidget {
         );
         break;
     }
+  }
+
+  void _startFinishWorkFlow(BuildContext context, WidgetRef ref) {
+    if (conversation == null) return;
+
+    // Pylon에 finish_work 요청 (Pylon이 상태 관리 및 Claude 메시지 전송)
+    ref.read(relayServiceProvider).sendClaudeControl(
+      workspace.deviceId,
+      workspace.workspaceId,
+      conversation!.conversationId,
+      'finish_work',
+    );
   }
 
   void _showNewSessionDialog(BuildContext context, WidgetRef ref) {

@@ -136,6 +136,9 @@ class Pylon {
       this.sendClaudeEvent(sessionId, event);
     });
 
+    // finishing 상태인 대화들 자동 재처리 (작업완료 메시지 재전송)
+    this.resumeFinishingConversations();
+
     this.flutterManager = new FlutterDevManager((workspaceId, event) => {
       this.sendFlutterEvent(workspaceId, event);
     });
@@ -1157,6 +1160,191 @@ class Pylon {
       case 'compact':
         this.log(`Compact not implemented yet`);
         break;
+      case 'finish_work':
+        this.handleFinishWork(sessionId);
+        break;
+      case 'cancel_finish':
+        this.handleCancelFinish(sessionId);
+        break;
+    }
+  }
+
+  /**
+   * 작업완료 취소 (finished → idle)
+   */
+  handleCancelFinish(sessionId) {
+    const workspaceId = workspaceStore.findWorkspaceByConversation(sessionId);
+    if (!workspaceId) return;
+
+    this.log(`[FinishWork] Cancelled for session: ${sessionId}`);
+
+    // 상태를 idle로 복원
+    workspaceStore.updateConversationStatus(workspaceId, sessionId, 'idle');
+
+    // 상태 브로드캐스트
+    this.send({
+      type: 'conversation_status',
+      payload: {
+        deviceId: this.deviceId,
+        conversationId: sessionId,
+        status: 'idle'
+      },
+      broadcast: 'clients'
+    });
+  }
+
+  /**
+   * 작업완료 처리
+   * 1. 상태를 finishing으로 변경
+   * 2. Claude에게 정리 메시지 전송
+   * 3. 완료 시 finish_work_complete 이벤트 전송
+   */
+  async handleFinishWork(sessionId) {
+    this.log(`[FinishWork] Starting for session: ${sessionId}`);
+
+    // 워크스페이스 정보 가져오기
+    const workspaceId = workspaceStore.findWorkspaceByConversation(sessionId);
+    if (!workspaceId) {
+      this.log(`[FinishWork] Workspace not found for session: ${sessionId}`);
+      return;
+    }
+
+    const workspace = workspaceStore.getWorkspace(workspaceId);
+    if (!workspace) {
+      this.log(`[FinishWork] Workspace data not found: ${workspaceId}`);
+      return;
+    }
+
+    // 상태를 finishing으로 변경
+    workspaceStore.updateConversationStatus(workspaceId, sessionId, 'finishing');
+
+    // 모든 클라이언트에게 상태 변경 브로드캐스트
+    this.send({
+      type: 'conversation_status',
+      payload: {
+        deviceId: this.deviceId,
+        conversationId: sessionId,
+        status: 'finishing'
+      },
+      broadcast: 'clients'
+    });
+
+    // 작업완료 메시지
+    const finishMessage = `현재 세션에서 작업된 내용을 정리해주세요:
+1. wip/ 폴더의 작업 문서를 log/ 폴더로 이동 (날짜 prefix 추가)
+2. 변경사항 커밋
+
+완료되면 알려주세요.`;
+
+    // finishing 세션 ID 저장 (완료 감지용)
+    if (!this.finishingSessions) {
+      this.finishingSessions = new Map();
+    }
+    this.finishingSessions.set(sessionId, {
+      workspaceId,
+      startTime: Date.now()
+    });
+
+    // Claude에게 메시지 전송
+    const conversation = workspaceStore.getConversation(workspaceId, sessionId);
+    const claudeSessionId = conversation?.claudeSessionId || null;
+
+    this.claudeManager.sendMessage(sessionId, finishMessage, {
+      workspaceId,
+      workingDir: workspace.workingDir,
+      claudeSessionId
+    });
+  }
+
+  /**
+   * finishing 세션의 작업 완료 확인
+   */
+  checkFinishWorkComplete(sessionId) {
+    if (!this.finishingSessions?.has(sessionId)) {
+      return;
+    }
+
+    const finishInfo = this.finishingSessions.get(sessionId);
+    this.finishingSessions.delete(sessionId);
+
+    this.log(`[FinishWork] Completed for session: ${sessionId}`);
+
+    // 상태를 finished로 변경 (다이얼로그 대기 상태)
+    workspaceStore.updateConversationStatus(finishInfo.workspaceId, sessionId, 'finished');
+
+    // finish_work_complete 이벤트 전송
+    const viewers = this.getSessionViewers(sessionId);
+    const completeEvent = {
+      type: 'finish_work_complete',
+      payload: {
+        deviceId: this.deviceId,
+        conversationId: sessionId,
+        workspaceId: finishInfo.workspaceId
+      }
+    };
+
+    if (viewers.size > 0) {
+      this.send({
+        ...completeEvent,
+        to: Array.from(viewers)
+      });
+    }
+
+    this.localServer?.broadcast(completeEvent);
+
+    // 상태 브로드캐스트 (finished)
+    this.send({
+      type: 'conversation_status',
+      payload: {
+        deviceId: this.deviceId,
+        conversationId: sessionId,
+        status: 'finished'
+      },
+      broadcast: 'clients'
+    });
+  }
+
+  /**
+   * Pylon 시작 시 finishing 상태인 대화들 자동 재처리
+   */
+  resumeFinishingConversations() {
+    const finishingConversations = workspaceStore.getFinishingConversations();
+
+    if (finishingConversations.length === 0) {
+      return;
+    }
+
+    this.log(`[FinishWork] Found ${finishingConversations.length} finishing conversation(s), resuming...`);
+
+    // finishingSessions 초기화
+    if (!this.finishingSessions) {
+      this.finishingSessions = new Map();
+    }
+
+    // 작업완료 메시지
+    const finishMessage = `현재 세션에서 작업된 내용을 정리해주세요:
+1. wip/ 폴더의 작업 문서를 log/ 폴더로 이동 (날짜 prefix 추가)
+2. 변경사항 커밋
+
+완료되면 알려주세요.`;
+
+    for (const conv of finishingConversations) {
+      const { workspaceId, conversationId, workingDir, claudeSessionId } = conv;
+
+      this.log(`[FinishWork] Resuming: ${conversationId}`);
+
+      // finishing 세션 등록
+      this.finishingSessions.set(conversationId, {
+        workspaceId,
+        startTime: Date.now()
+      });
+
+      // Claude에게 작업완료 메시지 재전송
+      this.claudeManager.sendMessage(conversationId, finishMessage, {
+        workspaceId,
+        workingDir,
+        claudeSessionId
+      });
     }
   }
 
@@ -1393,6 +1581,11 @@ class Pylon {
     // result 이벤트에서 사용량 누적
     if (event.type === 'result') {
       this.accumulateUsage(event);
+    }
+
+    // finishing 세션의 작업 완료 감지
+    if (event.type === 'state' && event.state === 'idle') {
+      this.checkFinishWorkComplete(sessionId);
     }
 
     const message = {
